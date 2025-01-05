@@ -1,0 +1,134 @@
+/* General Styling */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f9; /* Light background color for contrast */
+}
+
+/* Header Section */
+header {
+    background-color: #003366; /* Dark blue for school feel */
+    color: white;
+    padding: 10px 20px;
+    position: fixed;
+    width: 100%;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 4px 2px -2px gray;
+    box-sizing: border-box; /* Ensure padding doesn't overflow */
+    height: 60px; /* Fixed height for the header */
+}
+
+/* Adjust image size in header */
+header .logo img {
+    max-width: 120px; /* Set a max width for the logo */
+    height: auto; /* Maintain aspect ratio */
+}
+
+/* Navigation links */
+header nav {
+    display: flex;
+    gap: 20px; /* Add spacing between the nav items */
+}
+
+header nav a {
+    color: white;
+    text-decoration: none;
+    font-weight: bold;
+    padding: 10px 15px;
+    transition: background-color 0.3s ease;
+}
+
+header nav a:hover {
+    background-color: #00509e; /* Lighter blue on hover */
+    border-radius: 5px;
+}
+
+/* Main Content */
+main {
+    margin-top: 80px; /* Add space so content doesn't get hidden under the fixed header */
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: calc(100vh - 80px); /* Full height minus header height */
+}
+
+/* Upload Form Container */
+.upload-container {
+    background-color: #ffffff;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 600px;
+    text-align: center;
+}
+
+/* Title Styling */
+.upload-container h2 {
+    color: #003366; /* Dark blue for the header */
+    font-size: 24px;
+    margin-bottom: 20px;
+}
+
+/* File Input Styling */
+.upload-container input[type="file"] {
+    padding: 10px;
+    border: 2px solid #003366;
+    border-radius: 5px;
+    font-size: 16px;
+    width: 100%;
+    margin-bottom: 20px;
+}
+
+/* Upload Button Styling */
+.upload-container button {
+    background-color: #003366; /* Dark blue for button */
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.upload-container button:hover {
+    background-color: #00509e; /* Lighter blue on hover */
+}
+
+/* Flash Messages */
+ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    color: #e74c3c;
+}
+
+ul li {
+    background-color: #f8d7da;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+}
+
+/* Footer Section */
+footer {
+    background-color: #003366; /* Dark blue for the footer */
+    color: white;
+    text-align: center;
+    padding: 10px 0;
+    position: fixed;
+    width: 100%;
+    bottom: 0;
+}
+
+/* Footer Text Styling */
+footer p {
+    font-size: 14px;
+}

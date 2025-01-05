@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    body {
+        font-family: 'Roboto', Arial, sans-serif;
+        background-color: #f0f8ff; /* Light academic blue */
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+    }
+
+    .upload-container {
+        background: #ffffff;
+        padding: 25px 40px;
+        border-radius: 10px;
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        width: 350px;
+        border: 2px solid #0078d4; /* School blue border */
+    }
+
+    h2 {
+        font-size: 26px;
+        color: #004080; /* Dark academic blue */
+        margin-bottom: 20px;
+        font-weight: bold;
+    }
+
+    label {
+        font-size: 16px;
+        color: #333333;
+        margin-bottom: 5px;
+        display: block;
+    }
+
+    input[type="file"] {
+        margin-top: 10px;
+        margin-bottom: 20px;
+        padding: 8px;
+        width: 100%;
+        font-size: 15px;
+        border: 1px solid #cccccc;
+        border-radius: 5px;
+    }
+
+    button {
+        background-color: #0078d4; /* School blue */
+        color: white;
+        font-size: 16px;
+        font-weight: bold;
+        padding: 12px 20px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.1s ease;
+    }
+
+    button:hover {
+        background-color: #0056a3; /* Darker blue for hover effect */
+        transform: scale(1.02);
+    }
+
+    ul {
+        margin-top: 20px;
+        padding: 0;
+        list-style: none;
+    }
+
+    ul li {
+        background: #ffefc5; /* Warm notification color */
+        color: #5a3b00;
+        border: 1px solid #ffcc00;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 10px;
+        text-align: left;
+        font-size: 14px;
+    }
+
+    .school-logo {
+        width: 50px;
+        margin-bottom: 10px;
+    }
+</style>
+
+<div class="upload-container">
+
+    <h2>Upload Your File</h2>
+    <form method="POST" enctype="multipart/form-data">
+        <label for="file">Choose a file to upload:</label>
+        <input type="file" name="file" id="file" required>
+        <button type="submit">Upload</button>
+    </form>
+
+    {% if get_flashed_messages() %}
+    <ul>
+        {% for message in get_flashed_messages() %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+{% endblock %}
