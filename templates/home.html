@@ -3,4 +3,11 @@
 {% block content %}
 <h2>Welcome to LearnSafe</h2>
 <p>This is the base version of the web application. Features will be added soon!</p>
+{% if get_flashed_messages() %}
+    <ul>
+        {% for message in get_flashed_messages() %}
+            <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+{% endif %}
 {% endblock %}
