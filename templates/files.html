@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uploaded Files</title>
+    <link rel="stylesheet" href="static/css/styles.css">
+</head>
+<body>
+    <header>
+        <h1>Uploaded Files</h1>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/upload">Upload File</a>
+            <a href="/files">View Files</a>
+        </nav>
+    </header>
+
+    <main>
+        <h2>Files</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>File Name</th>
+                    <th>Status</th>
+                    <th>Uploaded At</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for file in files %}
+                <tr>
+                    <td>{{ file[1] }}</td> <!-- file_name -->
+                    <td>{{ file[5] }}</td> <!-- status -->
+                    <td>{{ file[4] }}</td> <!-- uploaded_at -->
+                    <td>
+                        {% if file[5] == 'Confidential' %}
+                            <a href="{{ url_for('view_file', file_id=file[0]) }}">View</a>
+                        {% elif file[5] == 'Public' %}
+                            <a href="{{ file[2] }}" target="_blank">View</a>  <!-- file[2] is the public file path -->
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 LearnSafe</p>
+    </footer>
+</body>
+</html>
