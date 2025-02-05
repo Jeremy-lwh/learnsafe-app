@@ -4,7 +4,49 @@ from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 from flask_mysqldb import MySQL
 import pytesseract  # For OCR (Image to text)
-from PIL import Image  # For image processing
+from PIL import Image, ImageDraw, ImageFont # For image processing
+from cryptography.fernet import Fernet
+
+
+
+#DRM
+# Load encryption key from environment variables or secure storage
+key = os.environ.get('ENCRYPTION_KEY', Fernet.generate_key())  # Fallback for testing
+cipher_suite = Fernet(key)
+
+
+# Encrypt a file
+# with open("file_to_encrypt.pdf", "rb") as file:
+#     encrypted_data = cipher_suite.encrypt(file.read())
+#
+# with open("encrypted_file.pdf", "wb") as file:
+#     file.write(encrypted_data)
+#
+# # Decrypt a file
+# with open("encrypted_file.pdf", "rb") as file:
+#     decrypted_data = cipher_suite.decrypt(file.read())
+#
+# with open("decrypted_file.pdf", "wb") as file:
+#     file.write(decrypted_data)
+
+# Encrypt a file before storing it
+def encrypt_file(file_path, key):
+    """Encrypts a file with the given key."""
+    cipher_suite = Fernet(key)
+    with open(file_path, 'rb') as file:
+        encrypted_data = cipher_suite.encrypt(file.read())
+    with open(file_path, 'wb') as file:
+        file.write(encrypted_data)
+
+# Decrypt a file before serving it
+def decrypt_file(file_path, key):
+    """Decrypts a file with the given key."""
+    cipher_suite = Fernet(key)
+    with open(file_path, 'rb') as file:
+        encrypted_data = file.read()
+    decrypted_data = cipher_suite.decrypt(encrypted_data)
+    with open(file_path, 'wb') as file:
+        file.write(decrypted_data)
 
 # Path to Tesseract executable (adjust this based on your system)
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'  # For Windows
@@ -16,7 +58,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'yoursecretkey'
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'password'
+app.config['MYSQL_PASSWORD'] = 'Password1'
 app.config['MYSQL_DB'] = 'learnsafe'
 app.config['MYSQL_PORT'] = 3306
 
@@ -89,7 +131,6 @@ def ensure_directory_exists(directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-
 # Route: File upload
 # Route: File upload
 @app.route('/upload', methods=['GET', 'POST'])
@@ -121,8 +162,13 @@ def upload_file():
             # Now, pass the file path to the contains_sensitive_data function
             has_sensitive_data, classification = contains_sensitive_data(temp_path)
 
-            # If sensitive data is found, save to the database for approval
+            # If sensitive data is found, encrypt and save to the database for approval
             if has_sensitive_data:
+                # Save the file as is first
+                file.save(temp_path)
+                # Encrypt the file (for Confidential classification)
+                encrypt_file(temp_path, key)  # Encrypt the file using the encryption key
+
                 # Log the file upload attempt
                 cur = mysql.connection.cursor()
                 cur.execute("INSERT INTO files (file_name, file_path, uploaded_by, status) VALUES (%s, %s, %s, %s)",
@@ -130,7 +176,7 @@ def upload_file():
                 mysql.connection.commit()
                 cur.close()
 
-                flash(f'The file contains sensitive data and is awaiting admin approval for classification.')
+                flash(f'The file contains sensitive data and has been encrypted. Awaiting admin approval for classification.')
                 return redirect(request.url)
             else:
                 # Ensure the permanent uploads directory exists
@@ -156,6 +202,73 @@ def upload_file():
             return redirect(request.url)
 
     return render_template('upload.html')
+
+
+#AUDIT LOGGING
+# Function to log user actions
+def log_action(user_id, username, role, action, page_visited=None, file_name=None):
+    # Logs user actions in the database.
+    cur = mysql.connection.cursor()
+    try:
+        # SQL command to insert a log entry
+        sql = """
+        INSERT INTO access_logs (user_id, username, role, action, page_visited, file_name, timestamp)
+        VALUES (%s, %s, %s, %s, %s, %s, NOW())
+        """
+        values = (
+            user_id,
+            username,
+            role,
+            action,
+            page_visited if page_visited else None,
+            file_name if file_name else None
+        )
+        cur.execute(sql, values)
+        mysql.connection.commit()
+
+    except Exception as e:
+        print(f"Error logging action: {e}")
+    finally:
+        cur.close()
+
+# Middleware to log page visits
+@app.before_request
+def log_page_visit():
+    """Logs every page visit if the user is logged in."""
+    if 'role' in session:
+        user_id = session.get('user_id', None)  # Add user_id to session during login
+        username = session.get('username', 'Unknown')
+        role = session.get('role', 'Unknown')
+        route = request.path
+
+        log_action(user_id, username, role,'Page Visit', route, None)
+
+
+# Route: Audit Logs (Admin Only)
+@app.route('/audit_logs')
+def audit_logs():
+    if session.get('role') != 'admin':
+        flash('Unauthorized access!')
+        return redirect(url_for('home'))
+
+    cur = mysql.connection.cursor()
+    try:
+        # Fetch audit logs from the database
+        cur.execute("SELECT id, username, action, timestamp FROM access_logs ORDER BY timestamp DESC")
+        logs = cur.fetchall()
+
+        # Convert logs to a list of dictionaries for easy use in the template
+        logs = [
+            {"id": row[0], "username": row[1], "action": row[2], "timestamp": row[3]}
+            for row in logs
+        ]
+    except Exception as e:
+        print(f"Error fetching logs: {e}")
+        logs = []
+    finally:
+        cur.close()
+
+    return render_template('audit_logs.html', logs=logs)
 
 @app.route('/admin', methods=['GET', 'POST'])
 def admin():
@@ -233,6 +346,7 @@ def admin():
         return redirect(url_for('admin'))
 
     return render_template('admin.html', files=files_to_approve)
+
 # Route: Admin Preview (before approval/rejection)
 @app.route('/admin/preview/<int:file_id>')
 def preview_file(file_id):
@@ -250,6 +364,13 @@ def preview_file(file_id):
 
     # Construct the full file path depending on the file's status
     if status == 'Pending Approval':
+        try:
+            decrypt_file(file_path, key)  # Decrypt the file dynamically
+            flash(f'Temporary decryption applied for preview.')
+        except Exception as e:
+            flash(f'Error decrypting file: {e}')
+            return redirect(url_for('admin'))
+
         # File is in temp_uploads if it is pending approval
         full_file_path = os.path.join(app.static_folder, file_path)  # Ensure this path is joined correctly
     elif status == 'Confidential' or status == 'Public':
@@ -297,41 +418,77 @@ def files():
     return render_template('files.html', files=updated_files)
 
 
+# @app.route('/view_file/<int:file_id>')
+# def view_file(file_id):
+#     """View a file based on its ID."""
+#     cur = mysql.connection.cursor()
+#     cur.execute("SELECT * FROM files WHERE id = %s", [file_id])
+#     file_data = cur.fetchone()
+#     cur.close()
+#
+#     if file_data:
+#         file_name, file_path, status = file_data[1], file_data[2], file_data[5]
+#         user_id = session.get('user_id', None)
+#         username = session.get('username', 'Guest')
+#         role = session.get('role', 'Guest')
+#
+#         # Check if the file is pending approval, and log the access attempt
+#         if status == 'Pending Approval':
+#             log_action(user_id, username, role, "File Access Attempt", None, file_name)
+#             return "This file is awaiting approval."
+#
+#         # If the file is approved, construct the correct full file path
+#         if status == 'Confidential' or status == 'Public':
+#             # Ensure file_path starts with 'uploads' if not already
+#             if not file_path.startswith('uploads'):
+#                 full_file_path = os.path.join(app.static_folder, 'uploads', file_path)
+#             else:
+#                 full_file_path = os.path.join(app.static_folder, file_path)
+#         else:
+#             return "File not found", 404
+#
+#
+#         # If the file exists, log the action and send it as a response
+#         if os.path.exists(full_file_path):
+#             log_action(user_id, username, role, "File Viewed", None, file_name)
+#             return send_file(full_file_path, as_attachment=True)  # Send file as download
+#         else:
+#             return "File not found", 404
+#
+#     return "File not found", 404
 
-# Route: View a specific file (after approval)
 @app.route('/view_file/<int:file_id>')
 def view_file(file_id):
-    """View a file based on its ID."""
+    """Allow authorized users to download files with proper decryption."""
     cur = mysql.connection.cursor()
-    cur.execute("SELECT * FROM files WHERE id = %s", [file_id])
+    cur.execute("SELECT file_name, file_path, status FROM files WHERE id = %s", [file_id])
     file_data = cur.fetchone()
     cur.close()
 
     if file_data:
         file_name, file_path, status = file_data[1], file_data[2], file_data[5]
+        user_id = session.get('user_id', None)
+        username = session.get('username', 'Guest')
+        role = session.get('role', 'Guest')
 
-        # Check if the file is pending approval, and show a message
-        if status == 'Pending Approval':
-            return "This file is awaiting approval."
+        # Check access rights for Confidential files
+        if status == 'Confidential' and role != 'admin':
+            flash("You do not have permission to access this confidential file.")
+            return redirect(url_for('files'))
 
-        # If the file is approved, construct the correct full file path
-        if status == 'Confidential' or status == 'Public':
-            # Ensure file_path starts with 'uploads' if not already
-            if not file_path.startswith('uploads'):
-                full_file_path = os.path.join(app.static_folder, 'uploads', file_path)
-            else:
-                full_file_path = os.path.join(app.static_folder, file_path)
+        full_file_path = os.path.join(app.static_folder, file_path)
 
-        else:
-            return "File not found", 404
-
-        # If the file exists, send it as a response
+        # If the file exists, decrypt it dynamically if it's confidential
         if os.path.exists(full_file_path):
-            return send_file(full_file_path, as_attachment=True)  # Send file as download
-        else:
-            return "File not found", 404
+            if status == 'Confidential':
+                decrypt_file(full_file_path, key)  # Decrypt confidential file dynamically
+                flash('Confidential file decrypted for access.')
+
+            log_action(user_id, username, role, "File Downloaded", None, file_name)
+            return send_file(full_file_path, as_attachment=True)
 
     return "File not found", 404
+
 
 
 # Temporary login route (for testing purposes)

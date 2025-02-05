@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 style="text-align: center;">Audit Logs</h2>
+{% if session.get('role') == 'admin' %}
+    <div style="margin: 0 auto; width: 80%;">
+        <table style="width: 100%; border-collapse: collapse; text-align: center;">
+            <thead>
+                <tr style="background-color: #f2f2f2;">
+                    <th style="border: 1px solid #ddd; padding: 8px;">ID</th>
+                    <th style="border: 1px solid #ddd; padding: 8px;">User</th>
+                    <th style="border: 1px solid #ddd; padding: 8px;">Action</th>
+                    <th style="border: 1px solid #ddd; padding: 8px;">Timestamp</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if logs and logs|length > 0 %}
+                    {% for log in logs %}
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{{ log.id }}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{{ log.username }}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{{ log.action }}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{{ log.timestamp }}</td>
+                        </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="4" style="border: 1px solid #ddd; padding: 8px;">No audit logs available.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <p style="text-align: center;">You do not have permission to access this page.</p>
+{% endif %}
+{% endblock %}
