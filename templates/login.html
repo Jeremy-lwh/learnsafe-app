@@ -1,12 +1,24 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>Login</h2>
-    <form method="POST">
-        <label for="username">Username:</label>
-        <input type="text" name="username" id="username" required><br>
-        <label for="password">Password:</label>
-        <input type="password" name="password" id="password" required><br>
-        <button type="submit">Login</button>
-    </form>
+    <section class="login-section">
+        <h2>Welcome To LearnSafe!</h2>
+        <h3>Please Login To Continue...</h3>
+        <form method="POST">
+            <label for="username">Username:</label>
+            <input type="text" name="username" id="username" required><br>
+            <label for="password">Password:</label>
+            <input type="password" name="password" id="password" required><br>
+            <button type="submit">Login</button>
+        </form>
+         <!-- Flash Messages -->
+            {% if get_flashed_messages() %}
+                <ul>
+                    {% for message in get_flashed_messages() %}
+                        <li>{{ message }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+    </section>
+
 {% endblock %}

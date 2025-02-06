@@ -1,38 +1,50 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h2>Admin Dashboard</h2>
 
-<h3>Files Pending Approval</h3>
+<div class="container">
+                {% if get_flashed_messages() %}
+                <ul>
+                    {% for message in get_flashed_messages() %}
+                        <li>{{ message }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+    <h2>Admin Dashboard</h2>
+    <p>Manage files awaiting approval and their status.</p>
 
-<table border="1">
-    <thead>
-        <tr>
-            <th>File Name</th>
-            <th>Uploaded Time</th>
-            <th>Status</th>
-            <th>Action</th>
-            <th>Preview File</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for file in files %}
-            <tr>
-                <td>{{ file[1] }}</td>  <!-- File Name -->
-                <td>{{ file[4] }}</td>  <!-- Uploaded Time -->
-                <td>{{ file[5] }}</td>  <!-- Status -->
-                <td>
-                    <form method="POST">
-                        <input type="hidden" name="file_id" value="{{ file[0] }}">
-                        <button type="submit" name="action" value="approve">Approve</button>
-                        <button type="submit" name="action" value="reject">Reject</button>
-                    </form>
-                </td>
-                <td>
-                    <a href="{{ url_for('preview_file', file_id=file[0]) }}" target="_blank">Preview</a>
-                </td>
-            </tr>
-        {% endfor %}
-    </tbody>
-</table>
+    <div class="table-container">
+        <table class="table table-striped" border="1">
+            <thead>
+                <tr>
+                    <th>File Name</th>
+                    <th>Uploaded Time</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                    <th>Preview File</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for file in files %}
+                    <tr>
+                        <td>{{ file[1] }}</td>  <!-- File Name -->
+                        <td>{{ file[4] }}</td>  <!-- Uploaded Time -->
+                        <td>{{ file[5] }}</td>  <!-- Status -->
+                        <td>
+                            <form method="POST">
+                                <input type="hidden" name="file_id" value="{{ file[0] }}">
+                                <button type="submit" name="action" value="approve" class="btn btn-success">Approve</button>
+                                <button type="submit" name="action" value="reject" class="btn btn-danger">Reject</button>
+                            </form>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('preview_file', file_id=file[0]) }}" target="_blank" class="btn btn-info">Preview</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
 {% endblock %}
