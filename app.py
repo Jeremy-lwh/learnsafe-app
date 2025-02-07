@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, send_from_directory, Response
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import check_password_hash,generate_password_hash
@@ -18,7 +18,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'yoursecretkey'
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'password'
+app.config['MYSQL_PASSWORD'] = 'Password1'
 app.config['MYSQL_DB'] = 'learnsafe'
 app.config['MYSQL_PORT'] = 3306
 
@@ -87,8 +87,7 @@ def ensure_directory_exists(directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-# Route: File upload
-# Route: File upload
+
 # Route: File upload
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
@@ -131,6 +130,14 @@ def upload_file():
                 flash(f'The file contains sensitive data and is awaiting admin approval for classification.')
                 return redirect(request.url)
             else:
+                try:
+                    # Log action
+                    user_id = session.get('user_id')
+                    username = session.get('username', 'Unknown')
+                    role = session.get('role', 'Unknown')
+                    log_action(user_id, username, role, "File Uploaded", None, filename)
+                except:
+                    flash(f"cant log")
                 # Ensure the permanent uploads directory exists
                 permanent_folder_path = os.path.join('static', 'uploads')
                 ensure_directory_exists(permanent_folder_path)  # Ensure permanent folder exists
@@ -177,6 +184,8 @@ def log_action(user_id, username, role, action, page_visited=None, file_name=Non
         print(f"Error logging action: {e}")
     finally:
         cur.close()
+
+
 # Middleware to log page visits
 @app.before_request
 def log_page_visit():
@@ -201,13 +210,20 @@ def audit_logs():
     try:
         # Fetch logs including username and role
         cur.execute("""
-            SELECT id, username, role, action, timestamp 
+            SELECT id, username, role, action, page_visited, file_name, timestamp 
             FROM access_logs 
             ORDER BY timestamp DESC
         """)
+        ALLOWED_ROUTES = {"/upload", "/audit_logs", "/clear_audit_logs", "/admin",
+                          "/admin/preview/<int:file_id>", "/files", "/view_file/<int:file_id>", "/login", "/logout", "/"}  # Add valid routes here
+
         logs = [
-            {"id": row[0], "username": row[1], "role": row[2], "action": row[3], "timestamp": row[4]}
+            {"id": row[0], "username": row[1], "role": row[2], "action": row[3],
+             "route": row[4] if row[3] == "Page Visit" and row[4] in ALLOWED_ROUTES else None,  # Assign route only for "Page Visit"
+            "file": row[5] if "File" in row[3] else None,  # Assign file if "File" is part of the action
+            "timestamp": row[6]}
             for row in cur.fetchall()
+            if row[3] != "Page Visit" or (row[3] == "Page Visit" and row[4] in ALLOWED_ROUTES) # <-- Filter out invalid Page Visits
         ]
     except Exception as e:
         print(f"Error fetching logs: {e}")
@@ -322,13 +338,14 @@ def admin():
 
             flash('File rejected and deleted.')
 
+
+
         cur.close()
         return redirect(url_for('admin'))
 
     return render_template('admin.html', files=files_to_approve)
 
 
-# Route: Admin Preview (before approval/rejection)
 # Route: Admin Preview (before approval/rejection)
 from flask import send_file
 from werkzeug.utils import secure_filename
@@ -374,45 +391,53 @@ def preview_file(file_id):
         action = request.form.get('action')  # Should be either 'approve' or 'reject'
 
         if action == 'approve':
-            # Approve the file (move to permanent storage and update DB)
-            cur = mysql.connection.cursor()
-            cur.execute("UPDATE files SET status = 'Confidential' WHERE id = %s", (file_id,))
-            mysql.connection.commit()
-            cur.close()
-
-            flash('File approved as Confidential.')
-
             # Log the approval action
             log_action(user_id, username, role, "Approved File", None, file_name)
+            try:
+                # Approve the file (move to permanent storage and update DB)
+                cur = mysql.connection.cursor()
+                cur.execute("UPDATE files SET status = 'Confidential' WHERE id = %s", (file_id,))
+                mysql.connection.commit()
+                cur.close()
 
-            # Move file to final location and remove from temporary folder
-            perm_file_path = os.path.join(app.config['UPLOAD_FOLDER'], file_name)
-            os.rename(full_file_path, perm_file_path)
-            return redirect(url_for('admin'))
+                flash('File approved as Confidential.')
+
+                # Move file to final location and remove from temporary folder
+                perm_file_path = os.path.join(app.config['UPLOAD_FOLDER'], file_name)
+                os.rename(full_file_path, perm_file_path)
+                return redirect(url_for('admin'))
+
+            except Exception as e:
+                flash(f"Error approving file: {e}", 'error')
+                mysql.connection.rollback()  # Rollback in case of failure
+                return redirect(url_for('admin'))
 
         elif action == 'reject':
-            # Reject the file (delete from temporary storage and update DB)
-            cur = mysql.connection.cursor()
-            cur.execute("UPDATE files SET status = 'Rejected' WHERE id = %s", (file_id,))
-            mysql.connection.commit()
-            cur.close()
-
-            flash('File rejected.')
-
             # Log the rejection action
             log_action(user_id, username, role, "Rejected File", None, file_name)
+            try:
+                # Reject the file (delete from temporary storage and update DB)
+                cur = mysql.connection.cursor()
+                cur.execute("UPDATE files SET status = 'Rejected' WHERE id = %s", (file_id,))
+                mysql.connection.commit()
+                cur.close()
 
-            # Remove the rejected file from temporary folder
-            os.remove(full_file_path)
-            return redirect(url_for('admin'))
+                flash('File rejected.')
+
+                # Remove the rejected file from temporary folder
+                os.remove(full_file_path)
+                return redirect(url_for('admin'))
+
+            except Exception as e:
+                flash(f"Error rejecting file: {e}", 'error')
+                mysql.connection.rollback()  # Rollback if an error occurs
+                return redirect(url_for('admin'))
 
         else:
             flash('Invalid action!')
             return redirect(url_for('admin'))
 
     return send_file(full_file_path, as_attachment=False)
-
-
 
 
 
@@ -447,6 +472,62 @@ def files():
     return render_template('files.html', files=updated_files)
 
 
+
+@app.route('/delete_file/<int:file_id>', methods=['POST'])
+def delete_file(file_id):
+    try:
+        # Log details
+        user_id = session.get('user_id')
+        username = session.get('username', 'Unknown')
+        role = session.get('role', 'Unknown')
+
+        # Get the file details from the database
+        with mysql.connection.cursor() as cursor:
+            cursor.execute("SELECT file_path FROM files WHERE id = %s", (file_id,))
+            file = cursor.fetchone()
+
+            if file:
+                relative_file_path = file[0]  # Example: "uploads/file_name"
+                file_name = os.path.basename(relative_file_path)
+
+                # Convert to absolute path
+                base_upload_path = os.path.abspath("static/uploads")
+                file_path = os.path.join(base_upload_path, file_name)
+
+                # Check if file exists and delete
+                if os.path.isfile(file_path):
+                    try:
+                        os.remove(file_path)
+                        flash("File deleted successfully from filesystem!", "success")
+                    except OSError as e:
+                        flash(f"Error deleting file from disk: {str(e)}", "error")
+                        return redirect(url_for('files'))  # Stop execution if file deletion fails
+                else:
+                    flash(f"File not found on filesystem: {file_path}", "error")
+
+                # Delete the file entry from the database
+                cursor.execute("DELETE FROM files WHERE id = %s", (file_id,))
+                mysql.connection.commit()
+
+                # Log the action
+                log_action(user_id, username, role, "File Deleted", None, file_name)
+            else:
+                flash("File not found in database!", "error")
+
+    except Exception as e:
+        mysql.connection.rollback()
+        flash(f"Error deleting file: {str(e)}", "error")
+
+    return redirect(url_for('files'))
+
+
+
+
+#DRM
+# Set the secure files folder to the uploads directory
+app.config['SECURE_FILES_FOLDER'] = os.path.join(app.static_folder, 'uploads')
+
+
 @app.route('/view_file/<int:file_id>')
 def view_file(file_id):
     """View a file based on its ID."""
@@ -466,25 +547,35 @@ def view_file(file_id):
             log_action(user_id, username, role, "File Access Attempt", None, file_name)
             return "This file is awaiting approval."
 
-        # If the file is approved, construct the correct full file path
-        if status == 'Confidential' or status == 'Public':
-            if not file_path.startswith('uploads'):
-                full_file_path = os.path.join(app.static_folder, 'uploads', file_path)
-            else:
-                full_file_path = os.path.join(app.static_folder, file_path)
-        else:
-            return "File not found", 404
+        # Check for admin-only access for confidential files
+        if status == 'Confidential' and role != 'admin':
+            log_action(user_id, username, role, "Unauthorized File Access Attempt", None, file_name)
+            return f"You do not have permission to view this file. {role}", 403
 
-        # If the file exists, log the action and send it as a response
+        # Construct the full file path securely
+        secure_folder = app.config['SECURE_FILES_FOLDER']
+        if not file_path.startswith('uploads'):
+            full_file_path = os.path.join(secure_folder, file_path)
+        else:
+            full_file_path = os.path.join(app.static_folder, file_path)
+
+        # Check if the file exists
         if os.path.exists(full_file_path):
             log_action(user_id, username, role, "File Viewed", None, file_name)
-            return send_file(full_file_path, as_attachment=True)  # Send file as download
+
+            # DRM - Serve PDFs inline (open in browser)
+            if file_name.endswith('.pdf'):
+                if status == 'Confidential':
+                    return render_template("pdf_viewer.html", pdf_url=f"/static/{file_path}")
+                else:
+                    return send_file(full_file_path, as_attachment=True)  # Normal download for non-confidential PDFs
+            else:
+                return send_file(full_file_path, as_attachment=True)
+
         else:
-            return "File not found", 404
+            return "File not found.", 404
 
     return "File not found", 404
-
-
 
 
 

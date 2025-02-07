@@ -22,17 +22,59 @@
                 <tr style="background-color: #f2f2f2;">
                     <th style="border: 1px solid #ddd; padding: 8px;">ID</th>
                     <th style="border: 1px solid #ddd; padding: 8px;">User</th>
+                    <th style="border: 1px solid #ddd; padding: 8px;">Role</th>
                     <th style="border: 1px solid #ddd; padding: 8px;">Action</th>
                     <th style="border: 1px solid #ddd; padding: 8px;">Timestamp</th>
                 </tr>
             </thead>
             <tbody>
+
+        <!--search filter-->
+
+        <div style="display: flex; justify-content: center; gap: 20px; margin: 20px 0;">
+            <div>
+                <label for="actionFilter" style="font-weight: bold; margin-right: 5px;">Filter by Action:</label>
+                <select id="actionFilter" style="padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f2f2f2; cursor: pointer;">
+                    <option value="all">All</option>
+                    <option value="Page Visit">Page Visit</option>
+                    <option value="Approved File">Approved File</option>
+                    <option value="File Viewed">File Viewed</option>
+                    <option value="File Uploaded">File Uploaded</option>
+                    <option value="File Deleted">File Deleted</option>
+                    <option value="File Access Attempt">File Access Attempt</option>
+                    <option value="Previewed File">Previewed File</option>
+                    <option value="Rejected File">Rejected File</option>
+                    <option value="Unauthorized File Access Attempt">Unauthorized File Access Attempt</option>
+                    <option value="User Login">User Login</option>
+                </select>
+            </div>
+            <div>
+                <label for="roleFilter" style="font-weight: bold; margin-right: 5px;">Filter by Role:</label>
+                <select id="roleFilter" style="padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f2f2f2; cursor: pointer;">
+                    <option value="all">All</option>
+                    <option value="Student">Student</option>
+                    <option value="Staff">Staff</option>
+                    <option value="Admin">Admin</option>
+                </select>
+            </div>
+        </div>
+
+
                 {% if logs and logs|length > 0 %}
                     {% for log in logs %}
                         <tr>
                             <td style="border: 1px solid #ddd; padding: 8px;">{{ log.id }}</td>
                             <td style="border: 1px solid #ddd; padding: 8px;">{{ log.username }}</td>
-                            <td style="border: 1px solid #ddd; padding: 8px;">{{ log.action }}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{{ log.role }}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">
+                                {% if log.action == "Page Visit" and log.route %}
+                                    Page Visit: ({{ log.route if log.route else 'No route available' }})
+                                {% elif "File" in log.action %}
+                                    {{ log.action }}: ({{ log.file if log.file else 'No file available' }})
+                                {% else %}
+                                    {{ log.action }}
+                                {% endif %}
+                            </td>
                             <td style="border: 1px solid #ddd; padding: 8px;">{{ log.timestamp }}</td>
                         </tr>
                     {% endfor %}
@@ -54,4 +96,42 @@
 {% else %}
     <p style="text-align: center;">You do not have permission to access this page.</p>
 {% endif %}
+
+
+<!--javascript for filter-->
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const actionFilter = document.getElementById("actionFilter");
+        const roleFilter = document.getElementById("roleFilter");
+        const tableRows = document.querySelectorAll("tbody tr"); // Select all rows inside <tbody>
+
+        function filterLogs() {
+            const selectedAction = actionFilter.value;
+            const selectedRole = roleFilter.value;
+
+            tableRows.forEach(row => {
+                const action = row.cells[3]?.textContent.trim(); // Action column
+                const role = row.cells[2]?.textContent.trim();   // Role column
+
+                // Check if the action matches any of the selected action filters
+                const actionMatch = (selectedAction === "all" ||
+                                     action.includes(selectedAction));
+
+                // Check if the role matches the selected role filter
+                const roleMatch = (selectedRole === "all" || role.includes(selectedRole));
+
+                if (actionMatch && roleMatch) {
+                    row.style.display = "";  // Show row
+                } else {
+                    row.style.display = "none";  // Hide row
+                }
+            });
+        }
+
+        // Add event listeners to trigger filtering when a dropdown is changed
+        actionFilter.addEventListener("change", filterLogs);
+        roleFilter.addEventListener("change", filterLogs);
+    });
+</script>
+
 {% endblock %}
