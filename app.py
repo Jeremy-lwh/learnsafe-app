@@ -18,7 +18,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'yoursecretkey'
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'Password1'
+app.config['MYSQL_PASSWORD'] = 'password'
 app.config['MYSQL_DB'] = 'learnsafe'
 app.config['MYSQL_PORT'] = 3306
 
@@ -92,71 +92,85 @@ def ensure_directory_exists(directory):
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
     """Handles file upload, validates file type, and scans for sensitive data."""
+    if "user_id" not in session:
+        return redirect(url_for("login"))  # Ensure only logged-in users can upload
+
+    user_id = session["user_id"]  # Get the logged-in user's ID
+    user_role = session["role"]
+
     if request.method == 'POST':
-        # Check if a file is uploaded
         if 'file' not in request.files:
             flash('No file part')
             return redirect(request.url)
 
         file = request.files['file']
 
-        # Check if file is selected
         if file.filename == '':
             flash('No selected file')
             return redirect(request.url)
 
-        # Validate file
         if file and allowed_file(file.filename):
-            # Secure the filename
             filename = secure_filename(file.filename)
-        if file and allowed_file(file.filename):
-            # Secure the filename
-            filename = secure_filename(file.filename)
- # Save the file temporarily before scanning for sensitive data
-            temp_path = os.path.join('static', 'temp_uploads', filename)  # Temp file location
-            ensure_directory_exists(os.path.dirname(temp_path))  # Ensure temp directory exists
+
+            # Save temporarily for scanning
+            temp_path = os.path.join('static', 'temp_uploads', filename)
+            ensure_directory_exists(os.path.dirname(temp_path))
             file.save(temp_path)
-            # Now, pass the file path to the contains_sensitive_data function
+
+            # Scan for sensitive data
             has_sensitive_data, classification = contains_sensitive_data(temp_path)
-            # If sensitive data is found, save to the database for approval
+
             if has_sensitive_data:
-                # Log the file upload attempt
+                # Store as 'Pending Approval' with correct uploaded_by ID
                 cur = mysql.connection.cursor()
-                cur.execute("INSERT INTO files (file_name, file_path, uploaded_by, status) VALUES (%s, %s, %s, %s)",
-                            (filename, os.path.join('temp_uploads', filename), 1,
-                             'Pending Approval'))  # Store relative path
+                cur.execute("""
+                    INSERT INTO files (file_name, file_path, uploaded_by, status) 
+                    VALUES (%s, %s, %s, %s)
+                """, (filename, os.path.join('temp_uploads', filename), user_id, 'Pending Approval'))
                 mysql.connection.commit()
                 cur.close()
-                flash(f'The file contains sensitive data and is awaiting admin approval for classification.')
+
+                flash('The file contains sensitive data and is awaiting admin approval.')
+                username = session.get('username', 'Unknown')
+                log_action(user_id, username, user_role, "Sensitive File Uploaded", None, filename)
+                if 'alerts' not in session:
+                    session['alerts'] = []
+                session['alerts'].append('A sensitive file has been uploaded and needs approval.')
                 return redirect(request.url)
+
             else:
                 try:
-                    # Log action
-                    user_id = session.get('user_id')
                     username = session.get('username', 'Unknown')
-                    role = session.get('role', 'Unknown')
-                    log_action(user_id, username, role, "File Uploaded", None, filename)
+                    log_action(user_id, username, user_role, "File Uploaded", None, filename)
                 except:
-                    flash(f"cant log")
-                # Ensure the permanent uploads directory exists
+                    flash("Failed to log upload action.")
+
+                # Move to permanent storage
                 permanent_folder_path = os.path.join('static', 'uploads')
-                ensure_directory_exists(permanent_folder_path)  # Ensure permanent folder exists
-                # If file is Public, store it in static/uploads
-                file_path = os.path.join(permanent_folder_path, filename)  # Public file location
-                os.rename(temp_path, file_path)  # Move file to permanent folder
-                # Save file record to DB as Public
+                ensure_directory_exists(permanent_folder_path)
+                file_path = os.path.join(permanent_folder_path, filename)
+                os.rename(temp_path, file_path)
+
+                # Save as 'Public' with correct uploaded_by ID
                 cur = mysql.connection.cursor()
-                cur.execute("INSERT INTO files (file_name, file_path, uploaded_by, status) VALUES (%s, %s, %s, %s)",
-                            (filename, os.path.join('uploads', filename), 1, 'Public'))  # Store relative path
+                cur.execute("""
+                    INSERT INTO files (file_name, file_path, uploaded_by, status) 
+                    VALUES (%s, %s, %s, %s)
+                """, (filename, os.path.join('uploads', filename), user_id, 'Public'))
                 mysql.connection.commit()
                 cur.close()
+
                 flash(f'File "{filename}" uploaded successfully as Public.')
                 return redirect(url_for('upload_file'))
+
         else:
             flash('File type not allowed')
+            username = session.get('username', 'Unknown')
+            log_action(user_id, username, user_role, "Failed File Upload Attempt", None)
             return redirect(request.url)
 
     return render_template('upload.html')
+
 
 
 #AUDIT LOGGING
@@ -346,6 +360,19 @@ def admin():
     return render_template('admin.html', files=files_to_approve)
 
 
+
+@app.route('/clear_all_alerts', methods=['POST'])
+def clear_all_alerts():
+    """Clears all alerts."""
+    if session.get('role') != 'admin':
+        flash('Unauthorized access!')
+        return redirect(url_for('home'))
+
+    session.pop('alerts', None)  # Remove all alerts from session
+    return redirect(request.referrer)  # Redirect back to the previous page
+
+
+
 # Route: Admin Preview (before approval/rejection)
 from flask import send_file
 from werkzeug.utils import secure_filename
@@ -443,33 +470,41 @@ def preview_file(file_id):
 
 @app.route('/files')
 def files():
-    """Displays all uploaded files with their status (Confidential/Public/Pending Approval)."""
+    """Displays uploaded files with restrictions based on user role."""
+    if "user_id" not in session:
+        return redirect(url_for("login"))  # Ensure only logged-in users can view
+
+    user_id = session["user_id"]
+    user_role = session["role"]
+
     cur = mysql.connection.cursor()
 
-    # Query to select files that are either 'Confidential', 'Public', or 'Pending Approval'
-    cur.execute("SELECT * FROM files WHERE status IN ('Confidential', 'Public', 'Pending Approval')")
-    all_files = cur.fetchall()
+    # Admins see all files
+    if user_role == "admin":
+        cur.execute("SELECT * FROM files WHERE status IN ('Confidential', 'Public', 'Pending Approval')")
+    else:  # Staff only see their own files
+        cur.execute("SELECT * FROM files WHERE uploaded_by = %s", (user_id,))
 
+    all_files = cur.fetchall()
     cur.close()
 
     updated_files = []
     for file in all_files:
         file_data = list(file)  # Convert tuple to list for modification
-        file_name = file_data[1]  # Assuming index 1 is file_name
-        file_path = file_data[2]  # Assuming index 2 is file_path
-        status = file_data[5]     # Assuming index 5 is status
+        file_name = file_data[1]  # file_name
+        file_path = file_data[2]  # file_path
+        status = file_data[5]     # status
 
-        # Update the file path based on the status
-        if status == 'Public' or status == 'Confidential':
-            # For approved files, adjust the file path to start from "uploads" folder
-            file_data[2] = url_for('static', filename='uploads/' + file_path.split(os.sep)[-1])  # Correct the path here
+        # Adjust file path for display
+        if status in ['Public', 'Confidential']:
+            file_data[2] = url_for('static', filename='uploads/' + file_path.split(os.sep)[-1])
         elif status == 'Pending Approval':
-            # Pending approval files should have their file path in temp_uploads
             file_data[2] = url_for('static', filename='temp_uploads/' + file_path.split(os.sep)[-1])
 
-        updated_files.append(file_data)  # Add modified file to updated list
+        updated_files.append(file_data)
 
     return render_template('files.html', files=updated_files)
+
 
 
 

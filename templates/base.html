@@ -23,6 +23,7 @@
                 <a href="{{ url_for('login') }}">Login</a>
             {% elif session.get('role') == 'staff' %}
                 <!-- For Staff (can see logout and upload) -->
+                <a href="{{ url_for('files') }}">Files</a>
                 <a href="{{ url_for('upload_file') }}">Upload</a>
                 <a href="{{ url_for('logout') }}">Logout</a>
             {% elif session.get('role') == 'student' %}
@@ -34,27 +35,48 @@
                 <a href="{{ url_for('admin_dashboard') }}">Admin Approval</a>
                 <a href="{{ url_for('audit_logs') }}">Audit Logs</a>
                 <a href="{{ url_for('files') }}">Files</a>
-                <!-- Notification Button -->
-                <a href="javascript:void(0);" onclick="toggleNotifications()">
-                    <img src="{{ url_for('static', filename='images/bell-icon.png') }}" alt="Notifications" width="24" height="24">
+                 <!-- Notification Button -->
+                <a href="javascript:void(0);" onclick="toggleNotifications()" class="notification-button">
+                    Notifications
+                    {% if session.get('alerts') %}
+                        <span class="notification-counter">{{ session.get('alerts')|length }}</span>
+                    {% endif %}
                 </a>
+
+
                 <a href="{{ url_for('logout') }}">Logout</a>
             {% endif %}
         </nav>
     </header>
 
-    <div id="notificationPanel" class="notification-panel">
-        <div class="notification-header">
-            <h4>Notifications</h4>
-            <button onclick="toggleNotifications()">Close</button>
-        </div>
-        <ul>
-            <!-- Example notifications (you can loop through notifications dynamically) -->
-            <li>New file uploaded for review.</li>
-            <li>Admin has approved a file.</li>
-            <li>Your upload has been successfully processed.</li>
-        </ul>
+<!-- Notification Panel -->
+<div id="notificationPanel" class="notification-panel">
+    <div class="notification-header">
+        <h4>Notifications</h4>
+        <button onclick="toggleNotifications()">Close</button>
     </div>
+    <ul>
+        {% if session.get('alerts') and session.get('role') == 'admin' %}
+            {% for alert in session['alerts'] %}
+                <li>
+                    {{ alert }}
+                </li>
+            {% endfor %}
+        {% else %}
+            <li>No new alerts.</li>  <!-- If no alert is set or not admin -->
+        {% endif %}
+    </ul>
+
+    <!-- Button to clear all alerts -->
+    {% if session.get('role') == 'admin' %}
+        <form method="POST" action="{{ url_for('clear_all_alerts') }}">
+            <button type="submit" class="clear-all-btn">Clear All Alerts</button>
+        </form>
+    {% endif %}
+</div>
+
+
+
 
     <main style="padding-top: 80px; padding-bottom: 80px;">  <!-- Add padding for both top and bottom -->
         {% block content %}{% endblock %}

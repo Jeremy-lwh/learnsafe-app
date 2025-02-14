@@ -373,3 +373,62 @@ nav a img {
     background-color: #f7f7f7;
     border-radius: 5px;
 }
+
+/* Specific Table Customizations for File Management */
+table a {
+    padding: 8px 16px;
+    color: #007bff;
+    text-decoration: none;
+}
+
+table a:hover {
+    text-decoration: underline;
+}
+/* Notification Panel */
+.notification-panel {
+    position: fixed; /* Keep it fixed on the screen */
+    top: 80px; /* Adjust this value to make it appear below the nav */
+    right: 20px; /* You can adjust this to align the panel as needed */
+    width: 300px; /* Adjust the width as needed */
+    background-color: #fff; /* White background */
+    border: 1px solid #ddd;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    display: none; /* Hidden by default */
+    z-index: 9999; /* Ensure it appears above other elements */
+}
+
+/* Make it visible when toggled */
+.notification-panel.show {
+    display: block;
+}
+
+.notification-header {
+    padding: 10px;
+    background-color: #f44336; /* Red background for alert */
+    color: white;
+    font-size: 16px;
+}
+
+.notification-header button {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+/* Styling for the list of alerts */
+.notification-panel ul {
+    list-style-type: none;
+    padding: 10px;
+    margin: 0;
+}
+
+.notification-panel .alert-item {
+    padding: 8px;
+    border-bottom: 1px solid #ddd;
+}
+
+.notification-panel .alert-item:last-child {
+    border-bottom: none;
+}

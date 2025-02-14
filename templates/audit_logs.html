@@ -38,12 +38,14 @@
                     <option value="all">All</option>
                     <option value="Page Visit">Page Visit</option>
                     <option value="Approved File">Approved File</option>
+                    <option value="Failed File Upload Attempt">Failed File Upload Attempt</option>
                     <option value="File Viewed">File Viewed</option>
                     <option value="File Uploaded">File Uploaded</option>
                     <option value="File Deleted">File Deleted</option>
                     <option value="File Access Attempt">File Access Attempt</option>
                     <option value="Previewed File">Previewed File</option>
                     <option value="Rejected File">Rejected File</option>
+                    <option value="Sensitive File Uploaded">Sensitive File Uploaded</option>
                     <option value="Unauthorized File Access Attempt">Unauthorized File Access Attempt</option>
                     <option value="User Login">User Login</option>
                 </select>
@@ -118,7 +120,7 @@
                                      action.includes(selectedAction));
 
                 // Check if the role matches the selected role filter
-                const roleMatch = (selectedRole === "all" || role.includes(selectedRole));
+                const roleMatch = (selectedRole === "all" || role.toLowerCase() === selectedRole.toLowerCase());
 
                 if (actionMatch && roleMatch) {
                     row.style.display = "";  // Show row
