@@ -17,36 +17,38 @@
         <div class="logo">
             <img src="{{ url_for('static', filename='images/Learnsafe_logo.jpg') }}" alt="LearnSafe Logo">
         </div>
-        <nav>
-            {% if not session.get('role') %}
-                <!-- If user is not logged in (guest) -->
-                <a href="{{ url_for('login') }}">Login</a>
-            {% elif session.get('role') == 'staff' %}
-                <!-- For Staff (can see logout and upload) -->
-                <a href="{{ url_for('files') }}">Files</a>
-                <a href="{{ url_for('upload_file') }}">Upload</a>
-                <a href="{{ url_for('logout') }}">Logout</a>
-            {% elif session.get('role') == 'student' %}
-                <!-- For Students (same as staff, no admin dashboard) -->
-                <a href="{{ url_for('upload_file') }}">Upload</a>
-                <a href="{{ url_for('logout') }}">Logout</a>
-            {% elif session.get('role') == 'admin' %}
-                <!-- For Admins (Admin Dashboard, Files, and Logout) -->
-                <a href="{{ url_for('admin_dashboard') }}">Admin Approval</a>
-                <a href="{{ url_for('audit_logs') }}">Audit Logs</a>
-                <a href="{{ url_for('files') }}">Files</a>
-                 <!-- Notification Button -->
-                <a href="javascript:void(0);" onclick="toggleNotifications()" class="notification-button">
-                    Notifications
-                    {% if session.get('alerts') %}
-                        <span class="notification-counter">{{ session.get('alerts')|length }}</span>
-                    {% endif %}
-                </a>
+<nav>
+  {% if not session.get('role') %}
+    <a href="{{ url_for('login') }}">Login</a>
+  {% elif session.get('role') == 'staff' %}
+    <a href="{{ url_for('files') }}">Files</a>
+    <a href="{{ url_for('upload_file') }}">Standard Upload</a>
+    <a href="{{ url_for('community_upload') }}">Community Upload</a>
+    <a href="{{ url_for('community_posts') }}">Community Blog</a>
+    <a href="{{ url_for('logout') }}">Logout</a>
+  {% elif session.get('role') == 'student' %}
+    <a href="{{ url_for('upload_file') }}">Standard Upload</a>
+    <a href="{{ url_for('community_upload') }}">Community Upload</a>
+    <a href="{{ url_for('community_posts') }}">Community Blog</a>
+    <a href="{{ url_for('logout') }}">Logout</a>
+  {% elif session.get('role') == 'admin' %}
+    <a href="{{ url_for('admin_dashboard') }}">Admin Approval</a>
+    <a href="{{ url_for('audit_logs') }}">Audit Logs</a>
+    <a href="{{ url_for('files') }}">Files</a>
+    <a href="{{ url_for('community_posts') }}">Community Blog</a>
+    <a href="{{ url_for('community_upload') }}">Community Upload</a>
+    <!-- Notification Button -->
+      <a href="javascript:void(0);" onclick="toggleNotifications()" class="notification-button">
+        Notifications
+        {% if session.get('alerts') %}
+          <span class="notification-counter">{{ session.get('alerts')|length }}</span>
+        {% endif %}
+      </a>
+    <a href="{{ url_for('logout') }}">Logout</a>
+  {% endif %}
+</nav>
 
 
-                <a href="{{ url_for('logout') }}">Logout</a>
-            {% endif %}
-        </nav>
     </header>
 
 <!-- Notification Panel -->

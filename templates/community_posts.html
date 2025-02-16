@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+    <style>
+        .community-post-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 20px;
+        }
+        .community-post {
+            border: 2px solid #0078d4;
+            border-radius: 10px;
+            padding: 20px;
+            background: #ffffff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .community-post h3 {
+            margin-top: 0;
+            color: #004080;
+            font-size: 24px;
+        }
+        .community-post p {
+            font-size: 16px;
+            color: #333;
+            margin: 10px 0;
+        }
+        .community-post a {
+            text-decoration: none;
+            color: #0078d4;
+            font-weight: bold;
+        }
+        .community-post a:hover {
+            text-decoration: underline;
+        }
+        .create-post {
+            text-align: center;
+            margin-top: 30px;
+        }
+        .create-post a {
+            padding: 10px 20px;
+            background-color: #0078d4;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            transition: background-color 0.3s ease;
+        }
+        .create-post a:hover {
+            background-color: #0056a3;
+        }
+    </style>
+
+    <div class="community-post-container">
+        <h2>Community Blog</h2>
+        {% for post in posts %}
+            <div class="community-post">
+                <h3><a href="{{ url_for('view_community_post', post_id=post[0]) }}">{{ post[1] }}</a></h3>
+                <p><strong>by {{ post[4] }}</strong> on {{ post[3] }}</p>
+            </div>
+        {% else %}
+            <p>No community posts yet.</p>
+        {% endfor %}
+    </div>
+    <div class="create-post">
+        <a href="{{ url_for('new_community_post') }}">Create New Post</a>
+    </div>
+{% endblock %}

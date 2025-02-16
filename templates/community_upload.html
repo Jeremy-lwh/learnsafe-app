@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block content %}
+    <style>
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: #f0f8ff; /* Light academic blue */
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 40px;
+            padding: 20px;
+        }
+        .instructions {
+            background: #ffffff;
+            padding: 25px 30px;
+            border-radius: 10px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+            text-align: left;
+            width: 40%;
+            border: 2px solid #0078d4;
+        }
+        .upload-container {
+            background: #ffffff;
+            padding: 25px 40px;
+            border-radius: 10px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 40%;
+            border: 2px solid #0078d4;
+        }
+        h2 {
+            font-size: 26px;
+            color: #004080;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .instructions h3, .upload-container h3 {
+            font-size: 20px;
+            color: #004080;
+            margin-bottom: 15px;
+        }
+        .instructions ul {
+            list-style: disc;
+            margin-left: 20px;
+            color: #333333;
+        }
+        .instructions li {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        label {
+            font-size: 16px;
+            color: #333333;
+            margin-bottom: 5px;
+            display: block;
+        }
+        input[type="file"],
+        select,
+        input[type="text"],
+        textarea {
+            margin-top: 10px;
+            margin-bottom: 20px;
+            padding: 8px;
+            width: 100%;
+            font-size: 15px;
+            border: 1px solid #cccccc;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #0078d4;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+        }
+        button:hover {
+            background-color: #0056a3;
+            transform: scale(1.02);
+        }
+        ul {
+            margin-top: 20px;
+            padding: 0;
+            list-style: none;
+        }
+        ul li {
+            background: #ffefc5;
+            color: #5a3b00;
+            border: 1px solid #ffcc00;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            text-align: left;
+            font-size: 14px;
+        }
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                align-items: center;
+                gap: 20px;
+            }
+            .instructions, .upload-container {
+                width: 90%;
+            }
+        }
+    </style>
+
+    <div class="container">
+        <!-- Instructions Section -->
+        <div class="instructions">
+            <h3>Community Upload & Post Instructions</h3>
+            <p>Please follow these guidelines when uploading your file and creating your community post:</p>
+            <ul>
+                <li>Accepted file types: PDF, DOCX, JPG, PNG, TXT, CSV</li>
+                <li>Maximum file size: 10 MB</li>
+                <li>The file will be auto-classified by the system.</li>
+                <li>If the system's classification doesn't match your selection, you'll be prompted to reclassify.</li>
+                <li>Provide a title and description; your post will be published on the Community Blog along with a preview link for your file.</li>
+            </ul>
+        </div>
+        <!-- Upload Form Section -->
+        <div class="upload-container">
+            <h2>Community Upload & Post</h2>
+            <form method="POST" enctype="multipart/form-data">
+                <label for="file">Choose a file to upload:</label>
+                <input type="file" name="file" id="file" required>
+
+                <label for="manual_class">Select classification:</label>
+                <select name="manual_class" id="manual_class" required>
+                    <option value="">--Select Classification--</option>
+                    <option value="study_notes">Study Notes</option>
+                    <option value="school_results">School Results</option>
+                    <option value="passwords_and_id">Passwords and ID</option>
+                    <option value="assignments">Assignments</option>
+                    <option value="official_documents">Official Documents</option>
+                </select>
+
+                <label for="post_title">Post Title:</label>
+                <input type="text" name="post_title" id="post_title" placeholder="Enter post title" required>
+
+                <label for="post_content">Post Description:</label>
+                <textarea name="post_content" id="post_content" rows="5" placeholder="Enter post description" required></textarea>
+
+                <button type="submit">Upload & Post</button>
+            </form>
+            <!-- Flash Messages -->
+            {% if get_flashed_messages() %}
+                <ul>
+                    {% for message in get_flashed_messages() %}
+                        <li>{{ message }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

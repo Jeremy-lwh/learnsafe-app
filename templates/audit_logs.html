@@ -1,22 +1,77 @@
 {% extends "base.html" %}
-
 {% block content %}
 <h2 style="text-align: center;">Audit Logs</h2>
 {% if session.get('role') == 'admin' %}
-            {% if get_flashed_messages() %}
-                <ul>
-                    {% for message in get_flashed_messages() %}
-                        <li>{{ message }}</li>
-                    {% endfor %}
-                </ul>
-            {% endif %}
+    {% if get_flashed_messages() %}
+        <ul>
+            {% for message in get_flashed_messages() %}
+                <li>{{ message }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
     <div style="margin: 0 auto; width: 80%;">
-                <!-- Button to clear logs -->
+        <!-- Button to clear logs -->
         <form method="POST" action="{{ url_for('clear_audit_logs') }}">
             <button type="submit" style="margin-top: 20px; padding: 10px 20px; background-color: #f44336; color: white; border: none; cursor: pointer;">
                 Clear All Logs
             </button>
         </form>
+
+        <!-- Filter Controls -->
+        <div style="display: flex; justify-content: center; gap: 20px; margin: 20px 0;">
+            <div>
+                <label for="actionFilter" style="font-weight: bold; margin-right: 5px;">Filter by Action:</label>
+          <select id="actionFilter" style="padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f2f2f2; cursor: pointer;">
+    <option value="all">All</option>
+    <option value="Page Visit">Page Visit</option>
+    <option value="Approved File">Approved File</option>
+    <option value="Failed File Upload Attempt">Failed File Upload Attempt</option>
+    <option value="File Viewed">File Viewed</option>
+    <option value="File Uploaded">File Uploaded</option>
+    <option value="File Deleted">File Deleted</option>
+    <option value="File Access Attempt">File Access Attempt</option>
+    <option value="Previewed File">Previewed File</option>
+    <option value="Rejected File">Rejected File</option>
+    <option value="Sensitive File Uploaded">Sensitive File Uploaded</option>
+    <option value="Unauthorized File Access Attempt">Unauthorized File Access Attempt</option>
+    <option value="User Login">User Login</option>
+    <!-- New filters below -->
+    <option value="User Logout">User Logout</option>
+    <option value="Community Post Created">Community Post Created</option>
+    <option value="Comment Added">Comment Added</option>
+    <option value="Community Decision Accepted">Community Decision Accepted</option>
+    <option value="Community Decision Reclassified">Community Decision Reclassified</option>
+</select>
+
+            </div>
+            <div>
+                <label for="roleFilter" style="font-weight: bold; margin-right: 5px;">Filter by Role:</label>
+                <select id="roleFilter" style="padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f2f2f2; cursor: pointer;">
+                    <option value="all">All</option>
+                    <option value="Student">Student</option>
+                    <option value="Staff">Staff</option>
+                    <option value="Admin">Admin</option>
+                </select>
+            </div>
+            <div>
+                <label for="routeFilter" style="font-weight: bold; margin-right: 5px;">Filter by Route:</label>
+                <select id="routeFilter" style="padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f2f2f2; cursor: pointer;">
+                    <option value="all">All</option>
+                    <!-- Add your known routes here -->
+                    <option value="/upload">/upload</option>
+                    <option value="/community_upload">/community_upload</option>
+                    <option value="/community_posts">/community_posts</option>
+                    <option value="/admin">/admin</option>
+                    <option value="/files">/files</option>
+                    <option value="/login">/login</option>
+                    <option value="/logout">/logout</option>
+                    <option value="/">/ (home)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Logs Table -->
         <table style="width: 100%; border-collapse: collapse; text-align: center;">
             <thead>
                 <tr style="background-color: #f2f2f2;">
@@ -28,40 +83,6 @@
                 </tr>
             </thead>
             <tbody>
-
-        <!--search filter-->
-
-        <div style="display: flex; justify-content: center; gap: 20px; margin: 20px 0;">
-            <div>
-                <label for="actionFilter" style="font-weight: bold; margin-right: 5px;">Filter by Action:</label>
-                <select id="actionFilter" style="padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f2f2f2; cursor: pointer;">
-                    <option value="all">All</option>
-                    <option value="Page Visit">Page Visit</option>
-                    <option value="Approved File">Approved File</option>
-                    <option value="Failed File Upload Attempt">Failed File Upload Attempt</option>
-                    <option value="File Viewed">File Viewed</option>
-                    <option value="File Uploaded">File Uploaded</option>
-                    <option value="File Deleted">File Deleted</option>
-                    <option value="File Access Attempt">File Access Attempt</option>
-                    <option value="Previewed File">Previewed File</option>
-                    <option value="Rejected File">Rejected File</option>
-                    <option value="Sensitive File Uploaded">Sensitive File Uploaded</option>
-                    <option value="Unauthorized File Access Attempt">Unauthorized File Access Attempt</option>
-                    <option value="User Login">User Login</option>
-                </select>
-            </div>
-            <div>
-                <label for="roleFilter" style="font-weight: bold; margin-right: 5px;">Filter by Role:</label>
-                <select id="roleFilter" style="padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f2f2f2; cursor: pointer;">
-                    <option value="all">All</option>
-                    <option value="Student">Student</option>
-                    <option value="Staff">Staff</option>
-                    <option value="Admin">Admin</option>
-                </select>
-            </div>
-        </div>
-
-
                 {% if logs and logs|length > 0 %}
                     {% for log in logs %}
                         <tr>
@@ -78,17 +99,19 @@
                                 {% endif %}
                             </td>
                             <td style="border: 1px solid #ddd; padding: 8px;">{{ log.timestamp }}</td>
+                            <!-- Hidden cell containing route so we can filter by route in JavaScript -->
+                            <td class="routeCell" style="display:none;">{{ log.route if log.route else '' }}</td>
                         </tr>
                     {% endfor %}
                 {% else %}
                     <tr>
-                        <td colspan="4" style="border: 1px solid #ddd; padding: 8px;">No audit logs available.</td>
+                        <td colspan="5" style="border: 1px solid #ddd; padding: 8px;">No audit logs available.</td>
                     </tr>
                 {% endif %}
             </tbody>
         </table>
 
-        <!-- Button to clear logs -->
+        <!-- Button to clear logs again (optional, if you want a second button) -->
         <form method="POST" action="{{ url_for('clear_audit_logs') }}">
             <button type="submit" style="margin-top: 20px; padding: 10px 20px; background-color: #f44336; color: white; border: none; cursor: pointer;">
                 Clear All Logs
@@ -100,40 +123,43 @@
 {% endif %}
 
 
-<!--javascript for filter-->
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const actionFilter = document.getElementById("actionFilter");
         const roleFilter = document.getElementById("roleFilter");
-        const tableRows = document.querySelectorAll("tbody tr"); // Select all rows inside <tbody>
+        const routeFilter = document.getElementById("routeFilter");
+        const tableRows = document.querySelectorAll("tbody tr");
 
         function filterLogs() {
             const selectedAction = actionFilter.value;
             const selectedRole = roleFilter.value;
+            const selectedRoute = routeFilter.value;
 
             tableRows.forEach(row => {
-                const action = row.cells[3]?.textContent.trim(); // Action column
-                const role = row.cells[2]?.textContent.trim();   // Role column
+                // columns: ID(0), User(1), Role(2), Action(3), Timestamp(4), hidden route(5)
+                const actionText = row.cells[3]?.textContent.trim() || "";
+                const roleText = row.cells[2]?.textContent.trim() || "";
+                const routeText = row.cells[5]?.textContent.trim() || "";
 
-                // Check if the action matches any of the selected action filters
-                const actionMatch = (selectedAction === "all" ||
-                                     action.includes(selectedAction));
+                // Action filter
+                const actionMatch = (selectedAction === "all" || actionText.includes(selectedAction));
+                // Role filter
+                const roleMatch = (selectedRole === "all" || roleText.toLowerCase() === selectedRole.toLowerCase());
+                // Route filter
+                const routeMatch = (selectedRoute === "all" || routeText === selectedRoute);
 
-                // Check if the role matches the selected role filter
-                const roleMatch = (selectedRole === "all" || role.toLowerCase() === selectedRole.toLowerCase());
-
-                if (actionMatch && roleMatch) {
-                    row.style.display = "";  // Show row
+                if (actionMatch && roleMatch && routeMatch) {
+                    row.style.display = "";
                 } else {
-                    row.style.display = "none";  // Hide row
+                    row.style.display = "none";
                 }
             });
         }
 
-        // Add event listeners to trigger filtering when a dropdown is changed
+        // Listen for changes
         actionFilter.addEventListener("change", filterLogs);
         roleFilter.addEventListener("change", filterLogs);
+        routeFilter.addEventListener("change", filterLogs);
     });
 </script>
-
 {% endblock %}

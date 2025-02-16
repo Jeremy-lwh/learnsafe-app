@@ -1,12 +1,19 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, send_from_directory, Response
+import random
+import re
+import pickle
+import joblib
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
-from werkzeug.security import check_password_hash,generate_password_hash
 from flask_mysqldb import MySQL
 import pytesseract  # For OCR (Image to text)
-from PIL import Image, ImageDraw, ImageFont # For image processing
+from PIL import Image, ImageDraw, ImageFont  # For image processing
 import traceback
+
+# For PDF reading and DOCX processing
+from PyPDF2 import PdfReader
+from docx import Document
 
 # Path to Tesseract executable (adjust this based on your system)
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'  # For Windows
@@ -22,82 +29,264 @@ app.config['MYSQL_PASSWORD'] = 'password'
 app.config['MYSQL_DB'] = 'learnsafe'
 app.config['MYSQL_PORT'] = 3306
 
-# Update this part in your app configuration
-app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'uploads')  # Permanent storage in static folder
-app.config['TEMP_UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'temp_uploads')  # Temporary folder for admin review
+# Folders for standard file uploads
+app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'uploads')  # Permanent storage
+app.config['TEMP_UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'temp_uploads')  # Temporary for standard uploads
 
+# Folders for community uploads (separate from standard uploads)
+app.config['COMM_UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'community_uploads')  # Permanent community storage
+app.config['TEMP_COMM_UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'temp_comm_uploads')  # Temporary community uploads
 
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # Limit to 10MB
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB limit
 app.config['ALLOWED_EXTENSIONS'] = {'pdf', 'docx', 'png', 'jpg', 'txt', 'csv'}
+
+# DRM: secure files folder set to the uploads directory
+app.config['SECURE_FILES_FOLDER'] = os.path.join(app.static_folder, 'uploads')
 
 # Initialize MYSQL
 mysql = MySQL(app)
 
-
-
 # Utility function to check allowed file extensions
 def allowed_file(filename):
-    """Check if the uploaded file has an allowed extension."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 # Function to check for sensitive data in files
 def contains_sensitive_data(file_path):
-    """Checks file content for sensitive data (e.g., student ID numbers, confidential info)."""
     sensitive_keywords = ['Student ID', 'Confidential', 'Private']
     file_extension = file_path.rsplit('.', 1)[-1].lower()
-
     try:
-        # Handle plain text files
         if file_extension in {'txt', 'csv'}:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
-
-        # Handle PDF files (requires PyPDF2)
         elif file_extension == 'pdf':
-            from PyPDF2 import PdfReader
             reader = PdfReader(file_path)
             content = ''.join(page.extract_text() for page in reader.pages)
-
-        # Handle images with OCR (Tesseract)
         elif file_extension in {'png', 'jpg', 'jpeg'}:
             try:
                 img = Image.open(file_path)
-                content = pytesseract.image_to_string(img)  # OCR extraction
+                content = pytesseract.image_to_string(img)
                 if content == "":
                     raise Exception("No text detected in image.")
             except Exception as e:
-                return False, f"Error scanning image with Tesseract: {str(e)}"  # Log specific error
-
+                return False, f"Error scanning image with Tesseract: {str(e)}"
         else:
             return False, "Unsupported file format"
-
-        # Check for sensitive data in the extracted content
         for keyword in sensitive_keywords:
             if keyword in content:
                 return True, "Confidential"
-
         return False, "Public"
-
     except Exception as e:
         return False, f"Error: {str(e)}"
 
-
-# Function to ensure directory exists
+# Ensure a directory exists
 def ensure_directory_exists(directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
 
+# ----------------- Machine Learning Code -----------------
 
-# Route: File upload
+MODEL_FILE = "classification_model.pkl"
+
+training_data = [
+    # Study Notes
+    ("Comprehensive notes on differential equations", "study_notes"),
+    ("Lecture summary on artificial intelligence", "study_notes"),
+    ("Handwritten notes covering organic chemistry reactions", "study_notes"),
+    ("Summary of the key principles in Newtonian physics", "study_notes"),
+    ("Flashcards for memorizing important dates in history", "study_notes"),
+    ("Mind map of biological classifications", "study_notes"),
+    ("Formula sheet for calculus and trigonometry", "study_notes"),
+    ("A detailed explanation of genetic mutations", "study_notes"),
+    ("Key takeaways from the lecture on supply chain management", "study_notes"),
+    ("Short notes on the basics of object-oriented programming", "study_notes"),
+    ("Physics revision notes for mechanics", "study_notes"),
+    ("Algebra practice problems and solutions", "study_notes"),
+    ("Summarized notes on electricity and magnetism", "study_notes"),
+    ("Notes on data structures and algorithms", "study_notes"),
+    ("Study notes on the history of ancient civilizations", "study_notes"),
+    ("Summary of machine learning techniques and algorithms", "study_notes"),
+    ("Revision notes on differential calculus", "study_notes"),
+    ("Key notes on environmental science and sustainability", "study_notes"),
+    ("Detailed notes on atomic theory and quantum mechanics", "study_notes"),
+
+    # School Results
+    ("Midterm results showing performance in mathematics", "school_results"),
+    ("Breakdown of my test scores for all subjects", "school_results"),
+    ("Official letter indicating academic standing for the semester", "school_results"),
+    ("GPA calculation breakdown for the final term", "school_results"),
+    ("Official grading report issued by the school", "school_results"),
+    ("Summary of coursework grades for the entire year", "school_results"),
+    ("Report showing my academic progress in different subjects", "school_results"),
+    ("List of subjects with corresponding grades for the last term", "school_results"),
+    ("Cumulative academic transcript with semester-wise results", "school_results"),
+    ("Final report card with remarks from teachers", "school_results"),
+    ("Annual academic performance report for 2024", "school_results"),
+    ("Transcript showing my academic improvement", "school_results"),
+    ("Semester report with grades in all major subjects", "school_results"),
+    ("Report card for my high school graduation", "school_results"),
+    ("Academic achievement report for a scholarship application", "school_results"),
+    ("Performance evaluation for the last school year", "school_results"),
+    ("Transcript detailing grades for all science courses", "school_results"),
+    ("Grade report with teacher's comments on performance", "school_results"),
+    ("Final marks sheet for my graduate school application", "school_results"),
+
+    # Passwords and ID
+    ("Securely stored document containing my passport details", "passwords_and_id"),
+    ("Encrypted file with login credentials for multiple sites", "passwords_and_id"),
+    ("A document listing all my recovery keys and authentication codes", "passwords_and_id"),
+    ("Password manager export file for account security", "passwords_and_id"),
+    ("A text file with my two-factor authentication backup codes", "passwords_and_id"),
+    ("List of credentials used for work-related accounts", "passwords_and_id"),
+    ("Scanned image of my driver's license and ID", "passwords_and_id"),
+    ("File containing my bank account details and passwords", "passwords_and_id"),
+    ("List of login credentials for my online classes", "passwords_and_id"),
+    ("Student ID card scanned copy and personal identification", "passwords_and_id"),
+    ("A text file with my banking account details and passwords", "passwords_and_id"),
+    ("List of my personal email and social media account details", "passwords_and_id"),
+    ("Personal file with account IDs and recovery questions", "passwords_and_id"),
+    ("Secure file containing my social security number and ID", "passwords_and_id"),
+    ("File containing passwords for my work-related logins", "passwords_and_id"),
+    ("Backup document with my phone numbers and account PINs", "passwords_and_id"),
+    ("Encrypted document with login information for my job portal", "passwords_and_id"),
+    ("List of my login credentials for e-commerce websites", "passwords_and_id"),
+    ("Secure backup file containing my online bank login", "passwords_and_id"),
+
+    # Assignments
+    ("Submitted coursework for programming class", "assignments"),
+    ("My essay on environmental sustainability", "assignments"),
+    ("Python coding project for machine learning", "assignments"),
+    ("Homework questions for algebra", "assignments"),
+    ("My essay on climate change", "assignments"),
+    ("Completed assignment on linear regression analysis", "assignments"),
+    ("Here is my homework on advanced calculus", "assignments"),
+    ("My programming assignment for the C++ course", "assignments"),
+    ("The essay on the impact of technology on society", "assignments"),
+    ("Assignment submission on data privacy and security", "assignments"),
+    ("Research paper on the effects of social media on youth", "assignments"),
+    ("Group project on renewable energy sources", "assignments"),
+    ("Completed assignment on statistical data analysis", "assignments"),
+    ("Essay on artificial intelligence ethics", "assignments"),
+    ("Assignment on web development using HTML, CSS, and JavaScript", "assignments"),
+    ("Research paper on climate change adaptation strategies", "assignments"),
+    ("C++ project involving basic file input/output", "assignments"),
+    ("Final exam essay on modern educational technologies", "assignments"),
+    ("Project on the study of data visualization techniques", "assignments"),
+    ("Essay on the impacts of globalization on local economies", "assignments"),
+
+    # Official Documents
+    ("My university enrollment letter", "official_documents"),
+    ("Receipt for tuition fee payment", "official_documents"),
+    ("Certificate of completion for online course", "official_documents"),
+    ("Student loan approval document", "official_documents"),
+    ("Official letter from the university confirming my enrollment", "official_documents"),
+    ("Tuition fee receipt for the current semester", "official_documents"),
+    ("Certificate of completion for an online Python course", "official_documents"),
+    ("Approval document for my student loan application", "official_documents"),
+    ("Official transcript for my courses", "official_documents"),
+    ("Letter from the university confirming my graduation", "official_documents"),
+    ("Certificate of attendance for the data science workshop", "official_documents"),
+    ("Confirmation letter from the university regarding my degree completion", "official_documents"),
+    ("Application for student housing with the university", "official_documents"),
+    ("Financial aid approval letter", "official_documents"),
+    ("Letter of recommendation from a professor", "official_documents"),
+    ("Application for student health insurance", "official_documents"),
+    ("Admission offer letter from a graduate program", "official_documents"),
+    ("Official transcript for the last academic year", "official_documents"),
+    ("Proof of health insurance coverage for study abroad", "official_documents")
+]
+
+def train_model(force_retrain=False):
+    if os.path.exists(MODEL_FILE) and not force_retrain:
+        print("Model already exists. Skipping training.")
+        return
+    print("Training model...")
+    random.shuffle(training_data)
+    texts, labels = zip(*training_data)
+    from sklearn.model_selection import train_test_split
+    from sklearn.pipeline import Pipeline
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import accuracy_score
+    train_texts, test_texts, train_labels, test_labels = train_test_split(
+        texts, labels, test_size=0.2, random_state=42
+    )
+    model_pipeline = Pipeline([
+        ('tfidf', TfidfVectorizer(stop_words='english', ngram_range=(1, 2))),
+        ('classifier', LogisticRegression(max_iter=2000))
+    ])
+    model_pipeline.fit(train_texts, train_labels)
+    test_predictions = model_pipeline.predict(test_texts)
+    accuracy = accuracy_score(test_labels, test_predictions)
+    print(f"Model trained with accuracy: {accuracy:.2%}")
+    joblib.dump(model_pipeline, MODEL_FILE)
+    print(f"Model saved to {MODEL_FILE}")
+
+train_model(force_retrain=True)
+model_pipeline = joblib.load(MODEL_FILE)
+print("Model retrained and loaded successfully.")
+
+def clean_text(text):
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.lower().strip()
+
+def classify_file(filepath):
+    file_extension = filepath.rsplit('.', 1)[1].lower()
+    content = ""
+    try:
+        if file_extension == 'pdf':
+            reader = PdfReader(filepath)
+            for page in reader.pages:
+                content += page.extract_text() or ""
+        elif file_extension == 'txt':
+            with open(filepath, 'r', errors='ignore') as file:
+                content = file.read()
+        elif file_extension == 'docx':
+            doc = Document(filepath)
+            for paragraph in doc.paragraphs:
+                content += paragraph.text
+        content = clean_text(content)
+        classification = model_pipeline.predict([content])[0]
+    except Exception as e:
+        print(f"Error scanning file: {e}")
+        classification = "study_notes"
+    return classification
+
+# ----------------- Logging & Middleware -----------------
+
+def log_action(user_id, username, role, action, page_visited=None, file_name=None):
+    cur = mysql.connection.cursor()
+    try:
+        sql = """
+        INSERT INTO access_logs (user_id, username, role, action, page_visited, file_name, timestamp)
+        VALUES (%s, %s, %s, %s, %s, %s, NOW())
+        """
+        values = (user_id, username, role, action, page_visited if page_visited else None, file_name if file_name else None)
+        cur.execute(sql, values)
+        mysql.connection.commit()
+    except Exception as e:
+        print(f"Error logging action: {e}")
+    finally:
+        cur.close()
+
+@app.before_request
+def log_page_visit():
+    if 'role' in session:
+        user_id = session.get('user_id', None)
+        username = session.get('username', 'Unknown')
+        role = session.get('role', 'Unknown')
+        route = request.path
+        log_action(user_id, username, role, 'Page Visit', route, None)
+
+# ----------------- Routes -----------------
+
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
     """Handles file upload, validates file type, and scans for sensitive data."""
     if "user_id" not in session:
         return redirect(url_for("login"))  # Ensure only logged-in users can upload
-
     user_id = session["user_id"]  # Get the logged-in user's ID
     user_role = session["role"]
-
     if request.method == 'POST':
         if 'file' not in request.files:
             flash('No file part')
@@ -111,15 +300,12 @@ def upload_file():
 
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-
             # Save temporarily for scanning
             temp_path = os.path.join('static', 'temp_uploads', filename)
             ensure_directory_exists(os.path.dirname(temp_path))
             file.save(temp_path)
-
             # Scan for sensitive data
             has_sensitive_data, classification = contains_sensitive_data(temp_path)
-
             if has_sensitive_data:
                 # Store as 'Pending Approval' with correct uploaded_by ID
                 cur = mysql.connection.cursor()
@@ -129,7 +315,6 @@ def upload_file():
                 """, (filename, os.path.join('temp_uploads', filename), user_id, 'Pending Approval'))
                 mysql.connection.commit()
                 cur.close()
-
                 flash('The file contains sensitive data and is awaiting admin approval.')
                 username = session.get('username', 'Unknown')
                 log_action(user_id, username, user_role, "Sensitive File Uploaded", None, filename)
@@ -137,20 +322,17 @@ def upload_file():
                     session['alerts'] = []
                 session['alerts'].append('A sensitive file has been uploaded and needs approval.')
                 return redirect(request.url)
-
             else:
                 try:
                     username = session.get('username', 'Unknown')
                     log_action(user_id, username, user_role, "File Uploaded", None, filename)
                 except:
                     flash("Failed to log upload action.")
-
                 # Move to permanent storage
                 permanent_folder_path = os.path.join('static', 'uploads')
                 ensure_directory_exists(permanent_folder_path)
                 file_path = os.path.join(permanent_folder_path, filename)
                 os.rename(temp_path, file_path)
-
                 # Save as 'Public' with correct uploaded_by ID
                 cur = mysql.connection.cursor()
                 cur.execute("""
@@ -159,10 +341,8 @@ def upload_file():
                 """, (filename, os.path.join('uploads', filename), user_id, 'Public'))
                 mysql.connection.commit()
                 cur.close()
-
                 flash(f'File "{filename}" uploaded successfully as Public.')
                 return redirect(url_for('upload_file'))
-
         else:
             flash('File type not allowed')
             username = session.get('username', 'Unknown')
@@ -171,510 +351,553 @@ def upload_file():
 
     return render_template('upload.html')
 
+# Community Upload Route (combined with new community post creation)
+@app.route('/community_upload', methods=['GET', 'POST'])
+def community_upload():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    user_id = session["user_id"]
+    if request.method == 'POST':
+        # Check required file and post data
+        if 'file' not in request.files:
+            flash('No file provided.')
+            return redirect(request.url)
+        file = request.files['file']
+        manual_class = request.form.get('manual_class')
+        post_title = request.form.get('post_title')
+        post_content = request.form.get('post_content')
+        if not manual_class or not post_title or not post_content:
+            flash("Please fill out all fields: classification, title, and description.")
+            return redirect(request.url)
+        if file.filename == '':
+            flash('No file selected.')
+            return redirect(request.url)
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            # Save file temporarily for community uploads
+            temp_path = os.path.join(app.config['TEMP_COMM_UPLOAD_FOLDER'], filename)
+            ensure_directory_exists(os.path.dirname(temp_path))
+            file.save(temp_path)
+            auto_class = classify_file(temp_path)
+            # If auto classification does not match student's selection, prompt for decision.
+            if auto_class != manual_class:
+                return render_template("community_reclassify.html",
+                                       filename=filename,
+                                       manual_class=manual_class,
+                                       auto_class=auto_class,
+                                       post_title=post_title,
+                                       post_content=post_content)
+            else:
+                status = "Public"
+                flash(f"File successfully classified as '{manual_class}' and posted to community blog.")
+                # Move file to permanent community uploads
+                permanent_path = os.path.join(app.config['COMM_UPLOAD_FOLDER'], filename)
+                ensure_directory_exists(app.config['COMM_UPLOAD_FOLDER'])
+                os.rename(temp_path, permanent_path)
+                relative_path = os.path.join('community_uploads', filename)
+            # Insert file info into files table and get its ID for preview link.
+            cur = mysql.connection.cursor()
+            cur.execute("""
+                INSERT INTO files (file_name, file_path, uploaded_by, status, classification)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (filename, relative_path, user_id, status, manual_class))
+            mysql.connection.commit()
+            file_id = cur.lastrowid
+            cur.close()
+            # Create a preview link and embed file details into the post content.
+            preview_link = ("<br><br><strong>File Posted:</strong> " + filename +
+                            " - <a href='" + url_for('view_file', file_id=file_id) +
+                            "' target='_blank'>Preview File</a>")
+            post_content_with_file = post_content + preview_link
+            cur = mysql.connection.cursor()
+            cur.execute("""
+                INSERT INTO community_posts (title, content, author_id)
+                VALUES (%s, %s, %s)
+            """, (post_title, post_content_with_file, user_id))
+            mysql.connection.commit()
+            cur.close()
+            log_action(user_id, session.get('username','Unknown'), session.get('role','Unknown'),
+                      "Community File Uploaded & Post Created", None, filename)
+            return redirect(url_for('community_upload'))
+        else:
+            flash("File type not allowed.")
+            return redirect(request.url)
+    return render_template('community_upload.html')
 
 
-#AUDIT LOGGING
-# Function to log user actions
-def log_action(user_id, username, role, action, page_visited=None, file_name=None):
-    # Logs user actions in the database.
-    cur = mysql.connection.cursor()
-    try:
-        # SQL command to insert a log entry
-        sql = """
-        INSERT INTO access_logs (user_id, username, role, action, page_visited, file_name, timestamp)
-        VALUES (%s, %s, %s, %s, %s, %s, NOW())
-        """
-        values = (
-            user_id,
-            username,
-            role,
-            action,
-            page_visited if page_visited else None,
-            file_name if file_name else None
-        )
-        cur.execute(sql, values)
+# Route to process decision if classification mismatches (student must reclassify or accept auto)
+@app.route('/community_decision', methods=['POST'])
+def community_decision():
+    decision = request.form.get("decision")
+    filename = request.form.get("filename")
+    manual_class = request.form.get("manual_class")
+    auto_class = request.form.get("auto_class")
+    post_title = request.form.get("post_title")
+    post_content = request.form.get("post_content")
+    user_id = session["user_id"]
+    temp_path = os.path.join(app.config["TEMP_COMM_UPLOAD_FOLDER"], filename)
+    if decision == "accept_auto":
+        permanent_path = os.path.join(app.config["COMM_UPLOAD_FOLDER"], filename)
+        ensure_directory_exists(app.config["COMM_UPLOAD_FOLDER"])
+        if os.path.exists(temp_path):
+            os.rename(temp_path, permanent_path)
+        relative_path = os.path.join("community_uploads", filename)
+        cur = mysql.connection.cursor()
+        cur.execute("""
+            INSERT INTO files (file_name, file_path, uploaded_by, status, classification)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (filename, relative_path, user_id, "Public", auto_class))
         mysql.connection.commit()
-    except Exception as e:
-        print(f"Error logging action: {e}")
-    finally:
+        file_id = cur.lastrowid
         cur.close()
+        # Append file preview link to post content.
+        preview_link = ("<br><br><strong>File Posted:</strong> " + filename +
+                        " - <a href='" + url_for('view_file', file_id=file_id) +
+                        "' target='_blank'>Preview File</a>")
+        post_content_with_file = post_content + preview_link
+        cur = mysql.connection.cursor()
+        cur.execute("""
+            INSERT INTO community_posts (title, content, author_id)
+            VALUES (%s, %s, %s)
+        """, (post_title, post_content_with_file, user_id))
+        mysql.connection.commit()
+        cur.close()
+        flash(f'File accepted with system classification: {auto_class} and posted to community blog.')
+        log_action(user_id, session.get('username','Unknown'), session.get('role','Unknown'),
+                   "Community Decision Accepted", None, filename)
+        return redirect(url_for("community_upload"))
+    elif decision == "reclassify":
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        flash("Please reclassify your file and upload again.")
+        log_action(user_id, session.get('username','Unknown'), session.get('role','Unknown'),
+                   "Community Decision Reclassified", None, filename)
+        return redirect(url_for("community_upload"))
+    else:
+        flash("Invalid decision.")
+        return redirect(url_for("community_upload"))
 
 
-# Middleware to log page visits
-@app.before_request
-def log_page_visit():
-    """Logs every page visit if the user is logged in."""
-    if 'role' in session:
-        user_id = session.get('user_id', None)  # Add user_id to session during login
-        username = session.get('username', 'Unknown')
-        role = session.get('role', 'Unknown')
-        route = request.path
-        log_action(user_id, username, role,'Page Visit', route, None)
 
+# ----------------- Community Posts & Comments Routes -----------------
 
-# Route: Audit Logs (Admin Only)
+# List all community posts in a blog-style page
+@app.route('/community_posts')
+def community_posts():
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT cp.id, cp.title, cp.content, cp.created_at, u.username FROM community_posts cp JOIN users u ON cp.author_id = u.id ORDER BY cp.created_at DESC")
+    posts = cur.fetchall()
+    cur.close()
+    return render_template('community_posts.html', posts=posts)
+
+# Create a new community post
+@app.route('/community_posts/new', methods=['GET', 'POST'])
+def new_community_post():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        title = request.form.get("title")
+        content = request.form.get("content")
+        if not title or not content:
+            flash("Title and content are required.")
+            return redirect(request.url)
+        user_id = session["user_id"]
+        cur = mysql.connection.cursor()
+        cur.execute("INSERT INTO community_posts (title, content, author_id) VALUES (%s, %s, %s)", (title, content, user_id))
+        mysql.connection.commit()
+        cur.close()
+        log_action(user_id, session.get('username','Unknown'), session.get('role','Unknown'),
+                   "Community Post Created", None, title)
+        flash("Community post created successfully.")
+        return redirect(url_for("community_posts"))
+    return render_template("community_upload.html")
+
+# View a single community post along with its comments; allow adding comments
+@app.route('/community_posts/<int:post_id>', methods=['GET', 'POST'])
+def view_community_post(post_id):
+    cur = mysql.connection.cursor()
+    # Get the post
+    cur.execute("SELECT cp.id, cp.title, cp.content, cp.created_at, u.username FROM community_posts cp JOIN users u ON cp.author_id = u.id WHERE cp.id = %s", (post_id,))
+    post = cur.fetchone()
+    if not post:
+        flash("Post not found.")
+        return redirect(url_for("community_posts"))
+    # Get comments for the post
+    cur.execute("SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON c.author_id = u.id WHERE c.post_id = %s ORDER BY c.created_at ASC", (post_id,))
+    comments = cur.fetchall()
+    if request.method == "POST":
+        comment_text = request.form.get("comment")
+        if not comment_text:
+            flash("Comment cannot be empty.")
+            return redirect(request.url)
+        user_id = session["user_id"]
+        cur.execute("INSERT INTO comments (post_id, author_id, content) VALUES (%s, %s, %s)", (post_id, user_id, comment_text))
+        mysql.connection.commit()
+        log_action(user_id, session.get('username','Unknown'), session.get('role','Unknown'),
+                   "Comment Added", f"Post {post_id}", None)
+        flash("Comment added.")
+        return redirect(request.url)
+    cur.close()
+    return render_template("view_community_post.html", post=post, comments=comments)
+
+# Delete a community post (allowed for admin & student)
+@app.route('/community_posts/delete/<int:post_id>', methods=['POST'])
+def delete_community_post(post_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    role = session.get('role')
+    if role not in ['admin', 'student']:
+        flash("You do not have permission to delete posts.")
+        return redirect(url_for("community_posts"))
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT title FROM community_posts WHERE id = %s", (post_id,))
+    post = cur.fetchone()
+    if not post:
+        flash("Post not found.")
+        return redirect(url_for("community_posts"))
+    cur.execute("DELETE FROM community_posts WHERE id = %s", (post_id,))
+    mysql.connection.commit()
+    cur.close()
+    log_action(session.get('user_id'), session.get('username','Unknown'), role, "Community Post Deleted", None, post[0])
+    flash("Post deleted successfully.")
+    return redirect(url_for("community_posts"))
+
+# ----------------- Other Routes (Audit Logs, Admin, Files, Login, etc.) -----------------
+
 @app.route('/audit_logs')
 def audit_logs():
-    """Fetches audit logs (Admin only)."""
     if session.get('role') != 'admin':
         flash('Unauthorized access!')
         return redirect(url_for('home'))
-
     cur = mysql.connection.cursor()
     try:
-        # Fetch logs including username and role
         cur.execute("""
             SELECT id, username, role, action, page_visited, file_name, timestamp 
             FROM access_logs 
             ORDER BY timestamp DESC
         """)
         ALLOWED_ROUTES = {"/upload", "/audit_logs", "/clear_audit_logs", "/admin",
-                          "/admin/preview/<int:file_id>", "/files", "/view_file/<int:file_id>", "/login", "/logout", "/"}  # Add valid routes here
-
+                          "/admin/preview/<int:file_id>", "/files", "/view_file/<int:file_id>", "/login", "/logout", "/", "/community_upload","/community_posts","/community_posts/<int:post_id>"}
         logs = [
             {"id": row[0], "username": row[1], "role": row[2], "action": row[3],
-             "route": row[4] if row[3] == "Page Visit" and row[4] in ALLOWED_ROUTES else None,  # Assign route only for "Page Visit"
-            "file": row[5] if "File" in row[3] else None,  # Assign file if "File" is part of the action
-            "timestamp": row[6]}
+             "route": row[4] if row[3] == "Page Visit" and row[4] in ALLOWED_ROUTES else None,
+             "file": row[5] if "File" in row[3] else None,
+             "timestamp": row[6]}
             for row in cur.fetchall()
-            if row[3] != "Page Visit" or (row[3] == "Page Visit" and row[4] in ALLOWED_ROUTES) # <-- Filter out invalid Page Visits
+            if row[3] != "Page Visit" or (row[3] == "Page Visit" and row[4] in ALLOWED_ROUTES)
         ]
     except Exception as e:
         print(f"Error fetching logs: {e}")
         logs = []
     finally:
         cur.close()
-
     return render_template('audit_logs.html', logs=logs)
-
 
 @app.route('/clear_audit_logs', methods=['POST'])
 def clear_audit_logs():
-    """Allows admins to clear all audit logs."""
     if session.get('role') != 'admin':
         flash('Unauthorized access!')
         return redirect(url_for('home'))
-
-    # Clear all audit logs from the database
-    try:
-        cur = mysql.connection.cursor()
-        cur.execute("DELETE FROM access_logs")  # SQL command to delete all logs
-        mysql.connection.commit()
-        cur.close()
-
-        flash('All audit logs have been cleared successfully.')
-    except Exception as e:
-        flash(f"An error occurred while clearing the logs: {str(e)}")
-
-    return redirect(url_for('audit_logs'))  # Redirect back to the audit logs page
+    cur = mysql.connection.cursor()
+    cur.execute("DELETE FROM access_logs")
+    mysql.connection.commit()
+    cur.close()
+    flash('All audit logs have been cleared successfully.')
+    return redirect(url_for('audit_logs'))
 
 
 @app.route('/admin', methods=['GET', 'POST'])
-def admin():
+def admin_dashboard():
     if session.get('role') != 'admin':
         flash('Unauthorized access!')
         return redirect(url_for('login'))
 
-    # Get the role filter from the query parameters
-    role_filter = request.args.get('role_filter')
+    # Get current admin info for logging
+    user_id = session.get('user_id')
+    username = session.get('username', 'Unknown')
+    role = session.get('role', 'Unknown')
 
-    # Modify the query based on the filter
-    query = "SELECT * FROM files WHERE status = 'Pending Approval'"
-    params = []
-
-    if role_filter:
-        query += " AND uploaded_by IN (SELECT id FROM users WHERE role = %s)"
-        params.append(role_filter)
-
-    # Execute the query with the filter
     cur = mysql.connection.cursor()
-    cur.execute(query, params)
-    files_to_approve = cur.fetchall()
-    cur.close()
-
     if request.method == 'POST':
-        file_id = request.form['file_id']
-        action = request.form['action']
+        file_id = request.form.get('file_id')
+        action = request.form.get('action')
 
-        # Ensure action is valid (either approve or reject)
         if action not in ['approve', 'reject']:
             flash('Invalid action!')
-            return redirect(url_for('admin'))
-
-        cur = mysql.connection.cursor()
+            return redirect(url_for('admin_dashboard'))
 
         if action == 'approve':
-            # Get file info from the database
-            cur.execute("SELECT file_name, file_path FROM files WHERE id = %s", [file_id])
+            # Query file_name and file_path
+            cur.execute("SELECT file_name, file_path FROM files WHERE id = %s", (file_id,))
             file_data = cur.fetchone()
             if not file_data:
                 flash('File not found!')
-                return redirect(url_for('admin'))
+                return redirect(url_for('admin_dashboard'))
 
-            filename = file_data[0]
-            temp_file_path = file_data[1]
+            filename, temp_file_path = file_data
             perm_file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
 
-            # Check if the file exists in the temporary folder
             if os.path.exists(os.path.join(app.static_folder, temp_file_path)):
-                # Ensure the destination folder exists
                 ensure_directory_exists(app.config['UPLOAD_FOLDER'])
-
-                # Move the file from temp to permanent folder
                 os.rename(os.path.join(app.static_folder, temp_file_path), perm_file_path)
-
-                # Update file status in the database to 'Confidential' (or 'Public', depending on your rules)
-                cur.execute("UPDATE files SET status = 'Confidential', file_path = %s WHERE id = %s", [os.path.join('uploads', filename), file_id])
+                # Update the file status to "Confidential"
+                cur.execute("""
+                    UPDATE files 
+                    SET status = 'Confidential', file_path = %s 
+                    WHERE id = %s
+                """, (os.path.join('uploads', filename), file_id))
                 mysql.connection.commit()
 
                 flash('File approved as Confidential.')
+
+                # Log the approval
+                log_action(user_id, username, role, "Approved File", None, filename)
             else:
                 flash('File does not exist in temporary folder.')
 
         elif action == 'reject':
-            # Get file path from the database
-            cur.execute("SELECT file_path FROM files WHERE id = %s", [file_id])
+            # Query file_name and file_path
+            cur.execute("SELECT file_name, file_path FROM files WHERE id = %s", (file_id,))
             file_data = cur.fetchone()
             if not file_data:
                 flash('File not found!')
-                return redirect(url_for('admin'))
+                return redirect(url_for('admin_dashboard'))
 
-            temp_file_path = file_data[0]
-
-            # Delete the rejected file from temp folder
+            filename, temp_file_path = file_data
             temp_file_path_full = os.path.join(app.static_folder, temp_file_path)
+
             if os.path.exists(temp_file_path_full):
                 os.remove(temp_file_path_full)
 
-            # Update file status to 'Rejected' in the database
-            cur.execute("UPDATE files SET status = 'Rejected' WHERE id = %s", [file_id])
+            # Update the file status to "Rejected"
+            cur.execute("UPDATE files SET status = 'Rejected' WHERE id = %s", (file_id,))
             mysql.connection.commit()
 
             flash('File rejected and deleted.')
 
-
+            # Log the rejection
+            log_action(user_id, username, role, "Rejected File", None, filename)
 
         cur.close()
-        return redirect(url_for('admin'))
+        return redirect(url_for('admin_dashboard'))
 
-    return render_template('admin.html', files=files_to_approve)
+    # For GET requests: show pending files
+    cur.execute("SELECT * FROM files WHERE status = 'Pending Approval'")
+    files = cur.fetchall()
+    cur.close()
 
+    return render_template('admin.html', files=files)
 
 
 @app.route('/clear_all_alerts', methods=['POST'])
 def clear_all_alerts():
-    """Clears all alerts."""
     if session.get('role') != 'admin':
         flash('Unauthorized access!')
         return redirect(url_for('home'))
-
-    session.pop('alerts', None)  # Remove all alerts from session
-    return redirect(request.referrer)  # Redirect back to the previous page
-
-
-
-# Route: Admin Preview (before approval/rejection)
-from flask import send_file
-from werkzeug.utils import secure_filename
-
-# Route: Admin Preview (before approval/rejection)
-@app.route('/admin/preview/<int:file_id>', methods=['GET', 'POST'])
-def preview_file(file_id):
-    """Allow admin to preview, approve, or reject a file before final decision."""
-    cur = mysql.connection.cursor()
-    cur.execute("SELECT file_name, file_path, status FROM files WHERE id = %s", (file_id,))
-    file_data = cur.fetchone()
-    cur.close()
-
-    if not file_data:
-        flash('File not found!')
-        return redirect(url_for('admin'))
-
-    file_name, file_path, status = file_data
-
-    # Construct the full file path depending on the file's status
-    if status == 'Pending Approval':
-        # File is in temp_uploads if it is pending approval
-        full_file_path = os.path.join(app.static_folder, file_path)  # Ensure this path is joined correctly
-    elif status == 'Confidential' or status == 'Public':
-        # Approved files (Confidential/Public) are in uploads
-        full_file_path = os.path.join(app.static_folder, 'uploads', file_path)  # Files are in the uploads folder
-    else:
-        flash('Invalid file status!')
-        return redirect(url_for('admin'))
-
-    if not os.path.exists(full_file_path):
-        flash('File not found!')
-        return redirect(url_for('admin'))
-
-    # Log preview action for the admin
-    user_id = session.get('user_id')
-    username = session.get('username', 'Unknown')
-    role = session.get('role', 'Unknown')
-    log_action(user_id, username, role, "Previewed File", None, file_name)
-
-    # Check if the admin is submitting the approval/rejection
-    if request.method == 'POST':
-        action = request.form.get('action')  # Should be either 'approve' or 'reject'
-
-        if action == 'approve':
-            # Log the approval action
-            log_action(user_id, username, role, "Approved File", None, file_name)
-            try:
-                # Approve the file (move to permanent storage and update DB)
-                cur = mysql.connection.cursor()
-                cur.execute("UPDATE files SET status = 'Confidential' WHERE id = %s", (file_id,))
-                mysql.connection.commit()
-                cur.close()
-
-                flash('File approved as Confidential.')
-
-                # Move file to final location and remove from temporary folder
-                perm_file_path = os.path.join(app.config['UPLOAD_FOLDER'], file_name)
-                os.rename(full_file_path, perm_file_path)
-                return redirect(url_for('admin'))
-
-            except Exception as e:
-                flash(f"Error approving file: {e}", 'error')
-                mysql.connection.rollback()  # Rollback in case of failure
-                return redirect(url_for('admin'))
-
-        elif action == 'reject':
-            # Log the rejection action
-            log_action(user_id, username, role, "Rejected File", None, file_name)
-            try:
-                # Reject the file (delete from temporary storage and update DB)
-                cur = mysql.connection.cursor()
-                cur.execute("UPDATE files SET status = 'Rejected' WHERE id = %s", (file_id,))
-                mysql.connection.commit()
-                cur.close()
-
-                flash('File rejected.')
-
-                # Remove the rejected file from temporary folder
-                os.remove(full_file_path)
-                return redirect(url_for('admin'))
-
-            except Exception as e:
-                flash(f"Error rejecting file: {e}", 'error')
-                mysql.connection.rollback()  # Rollback if an error occurs
-                return redirect(url_for('admin'))
-
-        else:
-            flash('Invalid action!')
-            return redirect(url_for('admin'))
-
-    return send_file(full_file_path, as_attachment=False)
-
-
+    session.pop('alerts', None)
+    return redirect(request.referrer)
 
 @app.route('/files')
 def files():
-    """Displays uploaded files with restrictions based on user role."""
     if "user_id" not in session:
-        return redirect(url_for("login"))  # Ensure only logged-in users can view
-
+        return redirect(url_for("login"))
     user_id = session["user_id"]
     user_role = session["role"]
 
     cur = mysql.connection.cursor()
 
-    # Admins see all files
     if user_role == "admin":
-        cur.execute("SELECT * FROM files WHERE status IN ('Confidential', 'Public', 'Pending Approval')")
-    else:  # Staff only see their own files
-        cur.execute("SELECT * FROM files WHERE uploaded_by = %s", (user_id,))
+        # Admin sees all files
+        # Also join to users table to get role
+        query = """
+            SELECT f.id, f.file_name, f.file_path, f.uploaded_by, f.uploaded_at, 
+                   f.status, f.uploaded_time, f.classification, u.role
+            FROM files f
+            JOIN users u ON f.uploaded_by = u.id
+            WHERE f.status IN ('Confidential', 'Public', 'Pending Approval')
+        """
+        cur.execute(query)
+    elif user_role == "staff":
+        # Example logic: staff sees files from staff or students
+        query = """
+            SELECT f.id, f.file_name, f.file_path, f.uploaded_by, f.uploaded_at, 
+                   f.status, f.uploaded_time, f.classification, u.role
+            FROM files f
+            JOIN users u ON f.uploaded_by = u.id
+            WHERE u.role IN ('staff','student')
+              AND f.status IN ('Confidential','Public','Pending Approval')
+        """
+        cur.execute(query)
+    else:
+        # Student sees only their own files
+        query = """
+            SELECT f.id, f.file_name, f.file_path, f.uploaded_by, f.uploaded_at, 
+                   f.status, f.uploaded_time, f.classification, u.role
+            FROM files f
+            JOIN users u ON f.uploaded_by = u.id
+            WHERE f.uploaded_by = %s
+        """
+        cur.execute(query, (user_id,))
 
     all_files = cur.fetchall()
     cur.close()
 
+    # Build updated_files with the needed info
     updated_files = []
-    for file in all_files:
-        file_data = list(file)  # Convert tuple to list for modification
-        file_name = file_data[1]  # file_name
-        file_path = file_data[2]  # file_path
-        status = file_data[5]     # status
-
+    for row in all_files:
+        # row = (id, file_name, file_path, uploaded_by, uploaded_at, status, uploaded_time, classification, uploader_role)
+        row_list = list(row)
+        file_name = row_list[1]
+        file_path = row_list[2]
+        status    = row_list[5]
         # Adjust file path for display
         if status in ['Public', 'Confidential']:
-            file_data[2] = url_for('static', filename='uploads/' + file_path.split(os.sep)[-1])
+            # point to "uploads"
+            row_list[2] = url_for('static', filename='uploads/' + file_path.split(os.sep)[-1])
         elif status == 'Pending Approval':
-            file_data[2] = url_for('static', filename='temp_uploads/' + file_path.split(os.sep)[-1])
-
-        updated_files.append(file_data)
+            # point to "temp_uploads"
+            row_list[2] = url_for('static', filename='temp_uploads/' + file_path.split(os.sep)[-1])
+        updated_files.append(row_list)
 
     return render_template('files.html', files=updated_files)
-
 
 
 
 @app.route('/delete_file/<int:file_id>', methods=['POST'])
 def delete_file(file_id):
     try:
-        # Log details
         user_id = session.get('user_id')
         username = session.get('username', 'Unknown')
         role = session.get('role', 'Unknown')
-
-        # Get the file details from the database
         with mysql.connection.cursor() as cursor:
             cursor.execute("SELECT file_path FROM files WHERE id = %s", (file_id,))
             file = cursor.fetchone()
-
             if file:
-                relative_file_path = file[0]  # Example: "uploads/file_name"
+                relative_file_path = file[0]
                 file_name = os.path.basename(relative_file_path)
-
-                # Convert to absolute path
                 base_upload_path = os.path.abspath("static/uploads")
                 file_path = os.path.join(base_upload_path, file_name)
-
-                # Check if file exists and delete
                 if os.path.isfile(file_path):
                     try:
                         os.remove(file_path)
                         flash("File deleted successfully from filesystem!", "success")
                     except OSError as e:
                         flash(f"Error deleting file from disk: {str(e)}", "error")
-                        return redirect(url_for('files'))  # Stop execution if file deletion fails
+                        return redirect(url_for('files'))
                 else:
                     flash(f"File not found on filesystem: {file_path}", "error")
-
-                # Delete the file entry from the database
                 cursor.execute("DELETE FROM files WHERE id = %s", (file_id,))
                 mysql.connection.commit()
-
-                # Log the action
                 log_action(user_id, username, role, "File Deleted", None, file_name)
             else:
                 flash("File not found in database!", "error")
-
     except Exception as e:
         mysql.connection.rollback()
         flash(f"Error deleting file: {str(e)}", "error")
-
     return redirect(url_for('files'))
-
-
-
-
-#DRM
-# Set the secure files folder to the uploads directory
-app.config['SECURE_FILES_FOLDER'] = os.path.join(app.static_folder, 'uploads')
-
 
 @app.route('/view_file/<int:file_id>')
 def view_file(file_id):
-    """View a file based on its ID."""
     cur = mysql.connection.cursor()
     cur.execute("SELECT * FROM files WHERE id = %s", [file_id])
     file_data = cur.fetchone()
     cur.close()
-
     if file_data:
-        file_name, file_path, status = file_data[1], file_data[2], file_data[5]
+        # Unpack columns: id, file_name, file_path, uploaded_by, uploaded_at, status, uploaded_time, classification
+        file_name = file_data[1]
+        file_path = file_data[2]
+        status = file_data[5]
+        uploaded_by = file_data[3]
+        classification = file_data[7]
         user_id = session.get('user_id', None)
         username = session.get('username', 'Guest')
         role = session.get('role', 'Guest')
-
-        # Check if the file is pending approval, and log the access attempt
-        if status == 'Pending Approval':
+        # If file is classified as passwords_and_id, only the uploader can view it.
+        if classification == "passwords_and_id" and session.get('user_id') != uploaded_by:
+            return "You do not have permission to view this file.", 403
+        # Allow admin to preview even if pending
+        if status == 'Pending Approval' and role != 'admin':
             log_action(user_id, username, role, "File Access Attempt", None, file_name)
             return "This file is awaiting approval."
-
-        # Check for admin-only access for confidential files
         if status == 'Confidential' and role != 'admin':
             log_action(user_id, username, role, "Unauthorized File Access Attempt", None, file_name)
             return f"You do not have permission to view this file. {role}", 403
-
-        # Construct the full file path securely
-        secure_folder = app.config['SECURE_FILES_FOLDER']
-        if not file_path.startswith('uploads'):
-            full_file_path = os.path.join(secure_folder, file_path)
-        else:
-            full_file_path = os.path.join(app.static_folder, file_path)
-
-        # Check if the file exists
+        # Always construct full path relative to the static folder
+        full_file_path = os.path.join(app.static_folder, file_path)
         if os.path.exists(full_file_path):
             log_action(user_id, username, role, "File Viewed", None, file_name)
-
-            # DRM - Serve PDFs inline (open in browser)
             if file_name.endswith('.pdf'):
                 if status == 'Confidential':
                     return render_template("pdf_viewer.html", pdf_url=f"/static/{file_path}")
                 else:
-                    return send_file(full_file_path, as_attachment=True)  # Normal download for non-confidential PDFs
+                    return send_file(full_file_path, as_attachment=True)
             else:
                 return send_file(full_file_path, as_attachment=True)
-
         else:
             return "File not found.", 404
-
     return "File not found", 404
 
 
 
-# Temporary login route (for testing purposes)
-# Login route
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Handles user login with database authentication and session management"""
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-
         cur = mysql.connection.cursor()
         cur.execute("SELECT id, username, role, password_hash FROM users WHERE username = %s", (username,))
         user = cur.fetchone()
         cur.close()
-
-        if user and password == user[3]:  # Directly compare the entered password with the stored password
-            session['user_id'] = user[0]  # Store user ID
-            session['username'] = user[1]  # Store username
-            session['role'] = user[2]  # Store role
-
+        if user and password == user[3]:
+            session['user_id'] = user[0]
+            session['username'] = user[1]
+            session['role'] = user[2]
             log_action(user[0], user[1], user[2], "User Login")
-
             if user[2] == 'admin':
-                return redirect(url_for('admin'))
+                return redirect(url_for('admin_dashboard'))
             elif user[2] == 'staff':
                 return redirect(url_for('upload_file'))
             else:
-                return redirect(url_for('home'))
+                return redirect(url_for('community_posts'))
         else:
             flash('Invalid credentials')
             return redirect(url_for('login'))
-
     return render_template('login.html')
 
-
-
-# Logout Route
 @app.route('/logout')
 def logout():
-    """Logs out the current user."""
+    user_id = session.get('user_id')
+    username = session.get('username', 'Unknown')
+    role = session.get('role', 'Unknown')
+
+    # Log the logout action
+    log_action(user_id, username, role, "User Logout")
+
+    # Clear session data
     session.pop('role', None)
+    session.pop('user_id', None)
+    session.pop('username', None)
+
     flash('You have been logged out.')
     return redirect(url_for('home'))
 
-# Error handler for file size exceedance
+
 @app.errorhandler(RequestEntityTooLarge)
 def handle_file_too_large_error(error):
     flash('File is too large! The maximum allowed size is 10MB.')
     return redirect(request.url)
 
+
+
 @app.route('/')
 def home():
-    """Redirect to login if the user is not logged in."""
     if 'role' not in session:
-        return redirect(url_for('login'))  # Redirect to the login page if not logged in
-    return render_template('home.html')  # Show home page if the user is logged in
+        return redirect(url_for('login'))
+    else:
+        flash('What would you like to do today? ')
+        return render_template('home.html')
 
 
-@app.route('/admin')
-def admin_dashboard():
-    return render_template('admin.html')
 
-# Run the app
 if __name__ == '__main__':
     app.run(debug=True)

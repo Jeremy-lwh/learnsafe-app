@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block content %}
+    <style>
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .reclassify-container {
+            border: 2px solid #0078d4;
+            border-radius: 10px;
+            padding: 20px;
+            background-color: #ffffff;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .reclassify-container h2 {
+            color: #004080;
+            font-size: 26px;
+            margin-bottom: 20px;
+        }
+        .reclassify-container p {
+            font-size: 16px;
+            color: #333;
+            margin: 10px 0;
+        }
+        .reclassify-container form button {
+            background-color: #0078d4;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        .reclassify-container form button:hover {
+            background-color: #0056a3;
+        }
+    </style>
+    <div class="container">
+        <div class="reclassify-container">
+            <h2>File Classification Mismatch</h2>
+            <p>Your selected classification: <strong>{{ manual_class }}</strong></p>
+            <p>System's classification: <strong>{{ auto_class }}</strong></p>
+            <p>Please choose one of the options below:</p>
+            <form method="POST" action="{{ url_for('community_decision') }}">
+                <input type="hidden" name="filename" value="{{ filename }}">
+                <input type="hidden" name="manual_class" value="{{ manual_class }}">
+                <input type="hidden" name="auto_class" value="{{ auto_class }}">
+                <input type="hidden" name="post_title" value="{{ post_title }}">
+                <input type="hidden" name="post_content" value="{{ post_content }}">
+                <button type="submit" name="decision" value="accept_auto">Accept System Classification</button>
+                <button type="submit" name="decision" value="reclassify">Reclassify and Re-upload</button>
+            </form>
+        </div>
+    </div>
+{% endblock %}
