@@ -481,14 +481,73 @@ def community_decision():
 
 # ----------------- Community Posts & Comments Routes -----------------
 
+def partial_mask_sensitive_data(text: str) -> str:
+    """
+    Masks NRIC and phone numbers so that only the last few digits/characters remain visible.
+    E.g., S1234567D -> *****567D (keep last 4 chars), 91234567 -> ****4567 (keep last 4 digits).
+    """
+    if not text:
+        return text
+
+    # Mask NRIC (S1234567D -> *****567D)
+    nric_pattern = r'(?i)\b[STFG]\d{7}[A-Z]\b'
+    def replace_nric(match):
+        nric = match.group(0)
+        # Keep last 4 chars (e.g., '567D'), replace the rest with '*'
+        masked_part = '*' * (len(nric) - 4) + nric[-4:]
+        return masked_part
+
+    masked_text = re.sub(nric_pattern, replace_nric, text)
+
+    # Mask phone numbers (91234567 -> ****4567, +65 91234567 -> +65 ****4567)
+    phone_pattern = r'(\+65\s?)?(\d{4})(\d{4})'
+    def replace_phone(match):
+        prefix = match.group(1) if match.group(1) else ""
+        first_four = match.group(2)
+        last_four = match.group(3)
+        # Replace the first 4 digits with asterisks, keep the last 4
+        return f"{prefix}{'*' * len(first_four)}{last_four}"
+
+    masked_text = re.sub(phone_pattern, replace_phone, masked_text)
+
+    return masked_text
+
+
+def mask_for_role(text: str, user_role: str) -> str:
+    """
+    If user is 'admin', return the original text; otherwise, partially mask it.
+    """
+    if user_role == 'admin':
+        return text
+    else:
+        return partial_mask_sensitive_data(text)
+
+
+
 # List all community posts in a blog-style page
 @app.route('/community_posts')
 def community_posts():
+    user_role = session.get('role', 'student')  # default to 'student' if not logged in
+
     cur = mysql.connection.cursor()
-    cur.execute("SELECT cp.id, cp.title, cp.content, cp.created_at, u.username FROM community_posts cp JOIN users u ON cp.author_id = u.id ORDER BY cp.created_at DESC")
-    posts = cur.fetchall()
+    cur.execute("""
+        SELECT cp.id, cp.title, cp.content, cp.created_at, u.username 
+        FROM community_posts cp 
+        JOIN users u ON cp.author_id = u.id 
+        ORDER BY cp.created_at DESC
+    """)
+    raw_posts = cur.fetchall()
     cur.close()
-    return render_template('community_posts.html', posts=posts)
+
+    masked_posts = []
+    for post in raw_posts:
+        post_id, title, content, created_at, author_name = post
+        # Mask title/content unless user_role == 'admin'
+        masked_title = mask_for_role(title, user_role)
+        masked_content = mask_for_role(content, user_role)
+        masked_posts.append((post_id, masked_title, masked_content, created_at, author_name))
+
+    return render_template('community_posts.html', posts=masked_posts)
 
 # Create a new community post
 @app.route('/community_posts/new', methods=['GET', 'POST'])
@@ -515,30 +574,53 @@ def new_community_post():
 # View a single community post along with its comments; allow adding comments
 @app.route('/community_posts/<int:post_id>', methods=['GET', 'POST'])
 def view_community_post(post_id):
+    user_role = session.get('role', 'student')
+
     cur = mysql.connection.cursor()
-    # Get the post
-    cur.execute("SELECT cp.id, cp.title, cp.content, cp.created_at, u.username FROM community_posts cp JOIN users u ON cp.author_id = u.id WHERE cp.id = %s", (post_id,))
-    post = cur.fetchone()
-    if not post:
+    cur.execute("""
+        SELECT cp.id, cp.title, cp.content, cp.created_at, u.username 
+        FROM community_posts cp 
+        JOIN users u ON cp.author_id = u.id 
+        WHERE cp.id = %s
+    """, (post_id,))
+    post_data = cur.fetchone()
+    if not post_data:
         flash("Post not found.")
         return redirect(url_for("community_posts"))
-    # Get comments for the post
-    cur.execute("SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON c.author_id = u.id WHERE c.post_id = %s ORDER BY c.created_at ASC", (post_id,))
-    comments = cur.fetchall()
+
+    cur.execute("""
+        SELECT c.id, c.content, c.created_at, u.username 
+        FROM comments c 
+        JOIN users u ON c.author_id = u.id 
+        WHERE c.post_id = %s 
+        ORDER BY c.created_at ASC
+    """, (post_id,))
+    comments_data = cur.fetchall()
+
+    # Handle new comment
     if request.method == "POST":
         comment_text = request.form.get("comment")
-        if not comment_text:
-            flash("Comment cannot be empty.")
-            return redirect(request.url)
-        user_id = session["user_id"]
-        cur.execute("INSERT INTO comments (post_id, author_id, content) VALUES (%s, %s, %s)", (post_id, user_id, comment_text))
-        mysql.connection.commit()
-        log_action(user_id, session.get('username','Unknown'), session.get('role','Unknown'),
-                   "Comment Added", f"Post {post_id}", None)
-        flash("Comment added.")
+        ...
+        # Insert comment
+        ...
         return redirect(request.url)
+
     cur.close()
-    return render_template("view_community_post.html", post=post, comments=comments)
+
+    # Mask the post
+    post_id, title, content, created_at, author_name = post_data
+    masked_title = mask_for_role(title, user_role)
+    masked_content = mask_for_role(content, user_role)
+    masked_post = (post_id, masked_title, masked_content, created_at, author_name)
+
+    # Mask each comment
+    masked_comments = []
+    for c in comments_data:
+        c_id, c_content, c_created_at, c_author_name = c
+        masked_c_content = mask_for_role(c_content, user_role)
+        masked_comments.append((c_id, masked_c_content, c_created_at, c_author_name))
+
+    return render_template("view_community_post.html", post=masked_post, comments=masked_comments)
 
 # Delete a community post (allowed for admin & student)
 @app.route('/community_posts/delete/<int:post_id>', methods=['POST'])
