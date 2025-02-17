@@ -278,12 +278,14 @@ def log_page_visit():
         route = request.path
         log_action(user_id, username, role, 'Page Visit', route, None)
 
+
 # ----------------- Routes -----------------
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
     """Handles file upload, validates file type, and scans for sensitive data."""
     if "user_id" not in session:
+        flash('Only Logged In Users Are Able To Access!')
         return redirect(url_for("login"))  # Ensure only logged-in users can upload
     user_id = session["user_id"]  # Get the logged-in user's ID
     user_role = session["role"]
@@ -355,6 +357,7 @@ def upload_file():
 @app.route('/community_upload', methods=['GET', 'POST'])
 def community_upload():
     if "user_id" not in session:
+        flash('Only Logged In Users Are Able To Access!')
         return redirect(url_for("login"))
     user_id = session["user_id"]
     if request.method == 'POST':
@@ -527,6 +530,9 @@ def mask_for_role(text: str, user_role: str) -> str:
 # List all community posts in a blog-style page
 @app.route('/community_posts')
 def community_posts():
+    if "user_id" not in session:
+        flash('Only Logged In Users Are Able To Access!')
+
     user_role = session.get('role', 'student')  # default to 'student' if not logged in
 
     cur = mysql.connection.cursor()
@@ -553,10 +559,11 @@ def community_posts():
 @app.route('/community_posts/new', methods=['GET', 'POST'])
 def new_community_post():
     if "user_id" not in session:
+        flash('Only Logged In Users Are Able To Access!')
         return redirect(url_for("login"))
     if request.method == "POST":
-        title = request.form.get("title")
-        content = request.form.get("content")
+        title = request.form.get("post_title")
+        content = request.form.get("post_content")
         if not title or not content:
             flash("Title and content are required.")
             return redirect(request.url)
@@ -574,6 +581,11 @@ def new_community_post():
 # View a single community post along with its comments; allow adding comments
 @app.route('/community_posts/<int:post_id>', methods=['GET', 'POST'])
 def view_community_post(post_id):
+    if "user_id" not in session:
+        flash('Only Logged In Users Are Able To Access!')
+        return redirect(url_for("login"))
+
+
     user_role = session.get('role', 'student')
 
     cur = mysql.connection.cursor()
@@ -626,6 +638,7 @@ def view_community_post(post_id):
 @app.route('/community_posts/delete/<int:post_id>', methods=['POST'])
 def delete_community_post(post_id):
     if "user_id" not in session:
+        flash('Only Logged In Users Are Able To Access!')
         return redirect(url_for("login"))
     role = session.get('role')
     if role not in ['admin', 'student']:
@@ -782,6 +795,7 @@ def clear_all_alerts():
 @app.route('/files')
 def files():
     if "user_id" not in session:
+        flash('Only Logged In Users Are Able To Access!')
         return redirect(url_for("login"))
     user_id = session["user_id"]
     user_role = session["role"]
@@ -895,8 +909,9 @@ def view_file(file_id):
         username = session.get('username', 'Guest')
         role = session.get('role', 'Guest')
         # If file is classified as passwords_and_id, only the uploader can view it.
-        if classification == "passwords_and_id" and session.get('user_id') != uploaded_by:
-            return "You do not have permission to view this file.", 403
+        if classification == "passwords_and_id":
+            if role != 'admin' and session.get('user_id') != uploaded_by:
+                return "You do not have permission to view this file.", 403
         # Allow admin to preview even if pending
         if status == 'Pending Approval' and role != 'admin':
             log_action(user_id, username, role, "File Access Attempt", None, file_name)
@@ -918,6 +933,7 @@ def view_file(file_id):
         else:
             return "File not found.", 404
     return "File not found", 404
+
 
 
 
@@ -974,9 +990,10 @@ def handle_file_too_large_error(error):
 @app.route('/')
 def home():
     if 'role' not in session:
+        flash('Only Logged In Users Are Able To Access!')
         return redirect(url_for('login'))
     else:
-        flash('What would you like to do today? ')
+        flash('What would you like to do today?')
         return render_template('home.html')
 
 
